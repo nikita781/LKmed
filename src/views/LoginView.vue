@@ -34,9 +34,10 @@ async function handleSubmit() {
   }
 
   try {
-    await login(credentials);
+    const session = await login(credentials);
+
     await router.push({
-      name: "cabinet",
+      name: session.user.role === "moderator" ? "moderatorDocuments" : "cabinet",
     });
   } catch {
     // Error state is already stored in the auth composable.

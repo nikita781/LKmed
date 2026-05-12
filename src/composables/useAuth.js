@@ -60,10 +60,12 @@ function logout() {
 export function useAuth() {
   const isAuthenticated = computed(() => Boolean(state.session?.accessToken));
   const user = computed(() => state.session?.user ?? null);
+  const role = computed(() => user.value?.role ?? (isAuthenticated.value ? "doctor" : "guest"));
 
   return {
     ...toRefs(state),
     isAuthenticated,
+    role,
     user,
     login,
     logout,

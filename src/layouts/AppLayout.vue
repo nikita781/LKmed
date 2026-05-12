@@ -1,13 +1,14 @@
 <script setup>
 import { computed } from "vue";
-import { useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import { udmurtiaEmblemSrc } from "../assets/designAssets";
 import AppHeader from "../components/AppHeader.vue";
 import UiKitSidebarMenu from "../components/ui/UiKitSidebarMenu.vue";
 import { useAuth } from "../composables/useAuth";
 
+const route = useRoute();
 const router = useRouter();
-const { logout, user } = useAuth();
+const { logout, role, user } = useAuth();
 
 const menuItems = computed(() => [
   {
@@ -21,6 +22,10 @@ const menuItems = computed(() => [
     icon: "report",
   },
 ]);
+const activeMenuKey = computed(() => route.meta.section ?? "documents");
+const documentsRouteName = computed(() =>
+  role.value === "moderator" ? "moderatorDocuments" : "cabinet",
+);
 
 function handleLogout() {
   logout();
@@ -32,7 +37,7 @@ function handleLogout() {
 function handleMenuSelect(item) {
   if (item?.key === "documents") {
     router.push({
-      name: "cabinet",
+      name: documentsRouteName.value,
     });
   }
 }
@@ -52,7 +57,7 @@ function handleMenuSelect(item) {
       <UiKitSidebarMenu
         class="app-layout__sidebar"
         :items="menuItems"
-        active-key="documents"
+        :active-key="activeMenuKey"
         @select="handleMenuSelect"
       />
 

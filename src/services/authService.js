@@ -16,14 +16,16 @@ export async function loginWithCredentials(credentials) {
     throw new Error("Введите логин и пароль.");
   }
 
+  const isModerator = username === "admin" && password === "admin";
+
   return {
     accessToken: "dev-access-token",
     refreshToken: "dev-refresh-token",
     user: {
-      id: "med-worker-demo",
-      fullName: "Тестовый медработник",
+      id: isModerator ? "moderator-demo" : "med-worker-demo",
+      fullName: isModerator ? "Фамилия Имя Отчество" : "Тестовый медработник",
       login: username,
-      role: "doctor",
+      role: isModerator ? "moderator" : "doctor",
     },
   };
 }
