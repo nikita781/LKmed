@@ -1,73 +1,87 @@
 <script setup>
-import { computed, ref, watch } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import UiKitIcon from "../components/ui/UiKitIcon.vue";
 import UiKitTag from "../components/ui/UiKitTag.vue";
 import DocumentPreviewModal from "../components/documents/DocumentPreviewModal.vue";
 import AppLayout from "../layouts/AppLayout.vue";
+import {
+  fixationEmployeeDocumentStartView,
+  getEmployeeDocument,
+  getEmployeeDocuments,
+  signEmployeeDocument,
+} from "../services/employeeDocumentsApi";
+import { getUserApiErrorMessage } from "../services/apiClient";
 
-const pageSize = 10;
 const selectedStatus = ref("all");
 const searchQuery = ref("");
 const currentPage = ref(1);
+const documents = ref([]);
+const paginationMeta = ref({
+  current_page: 1,
+  last_page: 1,
+  per_page: 15,
+  total: 0,
+});
 const selectedDocumentId = ref(null);
+const selectedDocumentDetails = ref(null);
 const isDocumentModalOpen = ref(false);
 const acknowledgedDocumentIds = ref(new Set());
+const isLoading = ref(false);
+const loadError = ref("");
+const actionError = ref("");
 const employeeName = "Тестовый медработник";
+let loadRequestId = 0;
+let searchTimer = null;
 
 const statusOptions = [
   { value: "all", label: "Все статусы" },
   { value: "new", label: "Новый" },
+  { value: "success", label: "Принят" },
 ];
 
-const allDocuments = Array.from({ length: 100 }, (_, index) => ({
-  id: index + 1,
-  title: `Документ ${index + 1}`,
-  createdAt: "дд.мм.гггг 00:00",
-  publishedAt: "дд.мм.гггг чч:мм",
-  readUntil: "дд.мм.гггг чч:мм",
-  responsible: "ФИО ответственного",
-  fileName: "Название файла",
-  status: "new",
-}));
+const statusMeta = {
+  new: {
+    label: "Новый",
+    variant: "new",
+  },
+  success: {
+    label: "Принят",
+    variant: "success",
+  },
+  error: {
+    label: "Просрочен",
+    variant: "error",
+  },
+};
 
 const filteredDocuments = computed(() => {
-  const query = searchQuery.value.trim().toLowerCase();
-
-  return allDocuments.filter((documentItem) => {
+  return documents.value.filter((documentItem) => {
     const matchesStatus =
       selectedStatus.value === "all" || documentItem.status === selectedStatus.value;
 
-    const matchesSearch =
-      !query ||
-      [documentItem.title, documentItem.createdAt, documentItem.fileName].some((value) =>
-        value.toLowerCase().includes(query),
-      );
-
-    return matchesStatus && matchesSearch;
+    return matchesStatus;
   });
 });
 
-const totalPages = computed(() => Math.max(1, Math.ceil(filteredDocuments.value.length / pageSize)));
+const totalPages = computed(() => Math.max(1, Number(paginationMeta.value.last_page) || 1));
 
-const visibleDocuments = computed(() => {
-  const startIndex = (currentPage.value - 1) * pageSize;
-
-  return filteredDocuments.value.slice(startIndex, startIndex + pageSize);
-});
+const visibleDocuments = computed(() => filteredDocuments.value);
 
 const selectedDocument = computed(() => {
-  const documentItem = allDocuments.find((item) => item.id === selectedDocumentId.value);
+  const documentItem =
+    selectedDocumentDetails.value ??
+    documents.value.find((item) => item.id === selectedDocumentId.value);
 
   if (!documentItem) {
     return null;
   }
 
-  const isAcknowledged = acknowledgedDocumentIds.value.has(documentItem.id);
+  const currentStatusMeta = getDocumentStatusMeta(documentItem);
 
   return {
     ...documentItem,
-    statusLabel: isAcknowledged ? "Принят" : "Новый",
-    statusVariant: isAcknowledged ? "success" : "new",
+    statusLabel: currentStatusMeta.label,
+    statusVariant: currentStatusMeta.variant,
   };
 });
 
@@ -116,8 +130,36 @@ const paginationItems = computed(() => {
   ];
 });
 
-watch([selectedStatus, searchQuery], () => {
+const tableEmptyMessage = computed(() => {
+  if (isLoading.value) {
+    return "Загружаем документы";
+  }
+
+  if (loadError.value) {
+    return loadError.value;
+  }
+
+  return "По вашему запросу документы не найдены";
+});
+
+onMounted(() => {
+  loadDocuments();
+});
+
+watch(selectedStatus, () => {
   currentPage.value = 1;
+});
+
+watch(searchQuery, () => {
+  currentPage.value = 1;
+  window.clearTimeout(searchTimer);
+  searchTimer = window.setTimeout(() => {
+    loadDocuments();
+  }, 300);
+});
+
+watch(currentPage, () => {
+  loadDocuments();
 });
 
 watch(totalPages, (nextTotalPages) => {
@@ -134,25 +176,119 @@ function setPage(page) {
   currentPage.value = page;
 }
 
-function previewDocument(documentId) {
+async function loadDocuments() {
+  const requestId = ++loadRequestId;
+
+  isLoading.value = true;
+  loadError.value = "";
+
+  try {
+    const response = await getEmployeeDocuments({
+      page: currentPage.value,
+      search: searchQuery.value.trim(),
+    });
+
+    if (requestId !== loadRequestId) {
+      return;
+    }
+
+    documents.value = response.data;
+    paginationMeta.value = response.meta;
+  } catch (error) {
+    if (requestId !== loadRequestId) {
+      return;
+    }
+
+    documents.value = [];
+    paginationMeta.value = {
+      current_page: 1,
+      last_page: 1,
+      per_page: 15,
+      total: 0,
+    };
+    loadError.value = getUserApiErrorMessage(error, "Не удалось загрузить документы");
+  } finally {
+    if (requestId === loadRequestId) {
+      isLoading.value = false;
+    }
+  }
+}
+
+async function previewDocument(documentId) {
+  const documentItem = documents.value.find((item) => item.id === documentId) ?? null;
+
   selectedDocumentId.value = documentId;
+  selectedDocumentDetails.value = documentItem;
   isDocumentModalOpen.value = true;
+  actionError.value = "";
+
+  try {
+    const documentDetails = await getEmployeeDocument(documentId);
+
+    selectedDocumentDetails.value = documentDetails;
+
+    if (!documentDetails.viewingStartedAt) {
+      await fixationEmployeeDocumentStartView(documentId);
+    }
+  } catch (error) {
+    actionError.value = getUserApiErrorMessage(error, "Не удалось открыть документ");
+  }
 }
 
-function isDocumentAcknowledged(documentId) {
-  return acknowledgedDocumentIds.value.has(documentId);
+function isDocumentAcknowledged(documentItem) {
+  const documentId = typeof documentItem === "object" ? documentItem.id : documentItem;
+  const documentStatus = typeof documentItem === "object" ? documentItem.status : "";
+
+  return acknowledgedDocumentIds.value.has(documentId) || documentStatus === "success";
 }
 
-function handleDocumentAcknowledge(documentItem) {
-  const nextAcknowledgedDocumentIds = new Set(acknowledgedDocumentIds.value);
+function getDocumentStatusMeta(documentItem) {
+  const status = isDocumentAcknowledged(documentItem) ? "success" : documentItem.status;
 
-  nextAcknowledgedDocumentIds.add(documentItem.id);
-  acknowledgedDocumentIds.value = nextAcknowledgedDocumentIds;
+  return statusMeta[status] ?? statusMeta.new;
 }
 
-function deleteDocument(documentId) {
-  return documentId;
+async function handleDocumentAcknowledge(documentItem) {
+  actionError.value = "";
+
+  try {
+    await signEmployeeDocument(documentItem.id);
+
+    documents.value = documents.value.map((item) =>
+      item.id === documentItem.id ? { ...item, status: "success" } : item,
+    );
+
+    if (selectedDocumentDetails.value?.id === documentItem.id) {
+      selectedDocumentDetails.value = {
+        ...selectedDocumentDetails.value,
+        status: "success",
+      };
+    }
+
+    const nextAcknowledgedDocumentIds = new Set(acknowledgedDocumentIds.value);
+
+    nextAcknowledgedDocumentIds.add(documentItem.id);
+    acknowledgedDocumentIds.value = nextAcknowledgedDocumentIds;
+    loadDocuments();
+  } catch (error) {
+    actionError.value = getUserApiErrorMessage(
+      error,
+      "Не удалось подтвердить ознакомление. Попробуйте позже.",
+    );
+  }
 }
+
+function deleteDocument() {
+  actionError.value = "Удаление документов для медработника на беке пока не реализовано.";
+}
+
+watch(isDocumentModalOpen, (isOpen) => {
+  if (isOpen) {
+    return;
+  }
+
+  selectedDocumentDetails.value = null;
+});
 </script>
 
 <template>
@@ -181,6 +317,10 @@ function deleteDocument(documentId) {
           <UiKitIcon class="documents-screen__search-icon" name="search" :size="24" />
         </div>
       </div>
+
+      <p v-if="actionError" class="documents-screen__message documents-screen__message--error">
+        {{ actionError }}
+      </p>
 
       <div class="documents-screen__table-wrap">
         <div class="documents-screen__table">
@@ -234,22 +374,34 @@ function deleteDocument(documentId) {
             class="documents-screen__row"
             :class="{ 'documents-screen__row--last': index === visibleDocuments.length - 1 }"
           >
-            <div class="documents-screen__cell documents-screen__cell--title" data-label="Название документа">
+            <div
+              class="documents-screen__cell documents-screen__cell--title"
+              data-label="Название документа"
+              :title="documentItem.title"
+            >
               {{ documentItem.title }}
             </div>
 
-            <div class="documents-screen__cell documents-screen__cell--date" data-label="Дата и время">
+            <div
+              class="documents-screen__cell documents-screen__cell--date"
+              data-label="Дата и время"
+              :title="documentItem.createdAt"
+            >
               {{ documentItem.createdAt }}
             </div>
 
-            <div class="documents-screen__cell documents-screen__cell--file" data-label="Прикрепленный файл">
+            <div
+              class="documents-screen__cell documents-screen__cell--file"
+              data-label="Прикрепленный файл"
+              :title="documentItem.fileName"
+            >
               {{ documentItem.fileName }}
             </div>
 
             <div class="documents-screen__cell documents-screen__cell--status" data-label="Статус">
               <UiKitTag
-                :variant="isDocumentAcknowledged(documentItem.id) ? 'success' : 'new'"
-                :label="isDocumentAcknowledged(documentItem.id) ? 'Принят' : 'Новый'"
+                :variant="getDocumentStatusMeta(documentItem).variant"
+                :label="getDocumentStatusMeta(documentItem).label"
               />
             </div>
 
@@ -268,6 +420,7 @@ function deleteDocument(documentId) {
                   class="documents-screen__action"
                   type="button"
                   aria-label="Удалить документ"
+                  title="Удаление для медработника пока не реализовано на беке"
                   @click="deleteDocument(documentItem.id)"
                 >
                   <UiKitIcon name="trash" :size="24" />
@@ -277,7 +430,7 @@ function deleteDocument(documentId) {
           </div>
 
           <div v-if="!visibleDocuments.length" class="documents-screen__empty">
-            По вашему запросу документы не найдены
+            {{ tableEmptyMessage }}
           </div>
         </div>
       </div>
@@ -421,6 +574,20 @@ function deleteDocument(documentId) {
   color: var(--color-primary);
 }
 
+.documents-screen__message {
+  margin: -16px 0 24px;
+  color: var(--color-text-muted);
+  font-family: var(--font-family-base);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 20px;
+  letter-spacing: 0.28px;
+}
+
+.documents-screen__message--error {
+  color: var(--color-accent);
+}
+
 .documents-screen__table-wrap {
   overflow-x: auto;
 }
@@ -441,6 +608,8 @@ function deleteDocument(documentId) {
 }
 
 .documents-screen__head-cell {
+  min-width: 0;
+  overflow: hidden;
   color: var(--color-text-strong);
   font-family: var(--font-family-base);
   font-size: 12px;
@@ -491,6 +660,13 @@ function deleteDocument(documentId) {
   line-height: 20px;
   letter-spacing: 0.28px;
   min-width: 0;
+  overflow: hidden;
+}
+
+.documents-screen__cell:not(.documents-screen__cell--status):not(.documents-screen__cell--actions) {
+  display: block;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .documents-screen__cell--status,
@@ -502,7 +678,9 @@ function deleteDocument(documentId) {
 
 .documents-screen__actions {
   display: flex;
+  width: 100%;
   align-items: center;
+  justify-content: center;
   gap: 16px;
 }
 
@@ -592,10 +770,19 @@ function deleteDocument(documentId) {
     gap: 20px;
   }
 
+  .documents-screen__title {
+    margin-bottom: 20px;
+  }
+
   .documents-screen__filters {
     flex-direction: column;
     align-items: stretch;
     gap: 16px;
+    margin-bottom: 24px;
+  }
+
+  .documents-screen__message {
+    margin: -8px 0 4px;
   }
 
   .documents-screen__select-wrap,
@@ -612,8 +799,15 @@ function deleteDocument(documentId) {
   }
 
   .documents-screen__row {
-    grid-template-columns: 1fr;
-    gap: 10px;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "title actions"
+      "date actions"
+      "file actions"
+      "status actions";
+    gap: 14px 16px;
+    align-items: start;
+    padding: 16px;
     border: 1px solid var(--color-border);
     border-radius: var(--radius-sm);
     margin-bottom: 12px;
@@ -624,30 +818,76 @@ function deleteDocument(documentId) {
   }
 
   .documents-screen__cell {
-    display: flex;
+    display: block;
+    min-width: 0;
+    overflow: hidden;
     flex-direction: column;
     gap: 4px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .documents-screen__cell--title {
+    grid-area: title;
+  }
+
+  .documents-screen__cell--date {
+    grid-area: date;
+  }
+
+  .documents-screen__cell--file {
+    grid-area: file;
+  }
+
+  .documents-screen__cell--status {
+    grid-area: status;
   }
 
   .documents-screen__cell::before {
     content: attr(data-label);
+    display: block;
+    margin-bottom: 4px;
+    overflow: hidden;
     color: var(--color-text-strong);
     font-family: var(--font-family-base);
     font-size: 12px;
     font-weight: 600;
     line-height: 1;
     letter-spacing: 0.24px;
+    text-overflow: ellipsis;
     text-transform: uppercase;
+    white-space: nowrap;
   }
 
-  .documents-screen__cell--status,
   .documents-screen__cell--actions {
-    align-items: flex-start;
+    grid-area: actions;
+    align-items: flex-end;
     justify-content: flex-start;
+    justify-self: end;
+  }
+
+  .documents-screen__cell--status {
+    display: block;
+  }
+
+  .documents-screen__cell--actions::before {
+    content: none;
+  }
+
+  .documents-screen__actions {
+    gap: 8px;
+  }
+
+  .documents-screen__action {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    background: var(--color-secondary);
   }
 
   .documents-screen__pagination {
     flex-wrap: wrap;
+    margin-top: 0;
   }
 }
 </style>

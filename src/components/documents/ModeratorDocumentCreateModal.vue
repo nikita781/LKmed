@@ -14,7 +14,7 @@
         >
           <header class="create-document-modal__header">
             <h2 id="create-document-title" class="create-document-modal__title">
-              Добавление документа
+              {{ modalTitle }}
             </h2>
             <button
               class="create-document-modal__close"
@@ -183,18 +183,22 @@
                   <UiKitIcon name="info" :size="24" />
                 </span>
                 <p>
-                  Максимальный размер вложений не должен превышать 15 МБ. Разрешенные типы
-                  файлов: .pdf, .doc, .jpg.
+                  Максимальный размер вложений не должен превышать {{ MAX_FILE_SIZE_LABEL }}.
+                  Разрешенные типы файлов: .pdf, .doc, .jpg.
                 </p>
               </div>
             </div>
 
-            <p v-if="formError" class="create-document-modal__error">
-              {{ formError }}
+            <p v-if="visibleFormError" class="create-document-modal__error">
+              {{ visibleFormError }}
             </p>
           </div>
 
-          <UiKitButton class="create-document-modal__submit" type="submit">
+          <UiKitButton
+            class="create-document-modal__submit"
+            type="submit"
+            :disabled="props.isSubmitting"
+          >
             Готово
           </UiKitButton>
         </form>
@@ -208,7 +212,9 @@ import { computed, onBeforeUnmount, reactive, ref, watch } from "vue";
 import UiKitButton from "../ui/UiKitButton.vue";
 import UiKitIcon from "../ui/UiKitIcon.vue";
 
-const MAX_FILE_SIZE = 15 * 1024 * 1024;
+// The current API rejects bigger files before Laravel validation reaches the controller.
+const MAX_FILE_SIZE = 2 * 1024 * 1024;
+const MAX_FILE_SIZE_LABEL = "2 МБ";
 const ACCEPTED_EXTENSIONS = [".pdf", ".doc", ".jpg"];
 
 const props = defineProps({
@@ -216,24 +222,52 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
+  categories: {
+    type: Array,
+    default: () => [],
+  },
+  groups: {
+    type: Array,
+    default: () => [],
+  },
+  baseDocuments: {
+    type: Array,
+    default: () => [],
+  },
+  mode: {
+    type: String,
+    default: "create",
+  },
+  document: {
+    type: Object,
+    default: null,
+  },
+  isSubmitting: {
+    type: Boolean,
+    default: false,
+  },
+  submitError: {
+    type: String,
+    default: "",
+  },
 });
 
-const emit = defineEmits(["update:modelValue", "create"]);
+const emit = defineEmits(["update:modelValue", "create", "update"]);
 
-const categoryOptions = [
+const fallbackCategoryOptions = [
   { id: "medicine", label: "Медицина" },
   { id: "safety", label: "Охрана труда" },
   { id: "quality", label: "Контроль качества" },
 ];
 
-const groupOptions = [
+const fallbackGroupOptions = [
   { id: "surgeon", label: "Хирург" },
   { id: "therapist", label: "Терапевт" },
   { id: "cardiologist", label: "Кардиолог" },
   { id: "nurse", label: "Медсестра" },
 ];
 
-const baseDocumentOptions = [
+const fallbackBaseDocumentOptions = [
   { id: "health-order", label: "Приказ Минздрава РФ" },
   { id: "clinic-regulation", label: "Регламент клиники" },
   { id: "sanitary-rules", label: "Санитарные правила" },
@@ -255,18 +289,47 @@ const form = reactive({
   baseDocumentId: "health-order",
 });
 
+const categoryOptions = computed(() =>
+  props.categories.length ? props.categories : fallbackCategoryOptions,
+);
+const groupOptions = computed(() => (props.groups.length ? props.groups : fallbackGroupOptions));
+const baseDocumentOptions = computed(() => {
+  const options = props.baseDocuments.length ? props.baseDocuments : fallbackBaseDocumentOptions;
+  const currentDocumentOption = getCurrentDocumentOption();
+
+  if (
+    !currentDocumentOption ||
+    options.some(
+      (document) =>
+        document.id === currentDocumentOption.id ||
+        normalizeOptionText(document.label) === normalizeOptionText(currentDocumentOption.label),
+    )
+  ) {
+    return options;
+  }
+
+  return [currentDocumentOption, ...options];
+});
+
 const isBaseMode = computed(() => documentMode.value === "base");
+const isEditMode = computed(() => props.mode === "edit");
+const modalTitle = computed(() =>
+  isEditMode.value ? "Редактирование документа" : "Добавление документа",
+);
 const selectedFileName = computed(() => selectedFile.value?.name ?? "");
+const hasApiBaseDocuments = computed(() => baseDocumentOptions.value.length > 0);
 const selectedGroupItems = computed(() =>
-  groupOptions.filter((group) => form.groups.includes(group.id)),
+  groupOptions.value.filter((group) => form.groups.includes(group.id)),
 );
 const selectedCategory = computed(
-  () => categoryOptions.find((category) => category.id === form.category) ?? categoryOptions[0],
+  () =>
+    categoryOptions.value.find((category) => category.id === form.category) ??
+    categoryOptions.value[0],
 );
 const selectedBaseDocument = computed(
   () =>
-    baseDocumentOptions.find((document) => document.id === form.baseDocumentId) ??
-    baseDocumentOptions[0],
+    baseDocumentOptions.value.find((document) => document.id === form.baseDocumentId) ??
+    baseDocumentOptions.value[0],
 );
 
 const shouldShowTitleError = computed(() => validationAttempted.value && !form.title.trim());
@@ -277,6 +340,7 @@ const shouldShowFileError = computed(
 const shouldShowBaseError = computed(
   () => validationAttempted.value && isBaseMode.value && !form.baseDocumentId,
 );
+const visibleFormError = computed(() => formError.value || props.submitError);
 
 watch(
   () => props.modelValue,
@@ -291,6 +355,21 @@ watch(
   },
 );
 
+watch(
+  () => props.document,
+  () => {
+    if (props.modelValue) {
+      resetForm();
+    }
+  },
+);
+
+watch(baseDocumentOptions, () => {
+  if (props.modelValue && isEditMode.value && props.document) {
+    form.baseDocumentId = getBaseDocumentId(props.document);
+  }
+});
+
 watch(documentMode, () => {
   formError.value = "";
   fileError.value = "";
@@ -301,24 +380,130 @@ onBeforeUnmount(() => {
 });
 
 function resetForm() {
-  documentMode.value = "upload";
+  const documentItem = props.document;
+  const defaultGroups = getDefaultGroupIds(documentItem);
+
+  documentMode.value = isEditMode.value ? "base" : "upload";
   isGroupMenuOpen.value = false;
   validationAttempted.value = false;
   selectedFile.value = null;
   fileError.value = "";
   formError.value = "";
-  form.title = "";
-  form.category = "medicine";
-  form.groups = ["surgeon", "therapist"];
-  form.readUntil = "";
-  form.baseDocumentId = "health-order";
+  form.title = documentItem?.title ?? "";
+  form.category = getCategoryId(documentItem);
+  form.groups = defaultGroups.length ? defaultGroups : [];
+  form.readUntil = toDateInputValue(documentItem?.readUntil);
+  form.baseDocumentId = getBaseDocumentId(documentItem);
 
   if (fileInputRef.value) {
     fileInputRef.value.value = "";
   }
 }
 
+function getDefaultGroupIds(documentItem) {
+  if (!documentItem?.groups?.length) {
+    return groupOptions.value.slice(0, 2).map((group) => group.id);
+  }
+
+  return documentItem.groups
+    .map((groupValue) => {
+      const normalizedValue = groupValue?.toString() ?? "";
+      const option = groupOptions.value.find(
+        (group) => group.id === normalizedValue || group.label === normalizedValue,
+      );
+
+      return option?.id ?? "";
+    })
+    .filter(Boolean);
+}
+
+function getCategoryId(documentItem) {
+  const fallbackCategoryId = categoryOptions.value[0]?.id ?? "";
+  const categoryValue = documentItem?.category;
+
+  if (!categoryValue) {
+    return fallbackCategoryId;
+  }
+
+  if (typeof categoryValue === "object") {
+    return categoryValue.id?.toString() ?? fallbackCategoryId;
+  }
+
+  return (
+    categoryOptions.value.find(
+      (category) => category.id === categoryValue || category.label === categoryValue,
+    )?.id ?? fallbackCategoryId
+  );
+}
+
+function getBaseDocumentId(documentItem) {
+  const fallbackDocumentId = baseDocumentOptions.value[0]?.id ?? "";
+
+  if (!documentItem) {
+    return fallbackDocumentId;
+  }
+
+  return (
+    documentItem.baseDocumentId ??
+    documentItem.documentId ??
+    baseDocumentOptions.value.find(
+      (document) =>
+        normalizeOptionText(document.label) === normalizeOptionText(documentItem.fileName),
+    )?.id ??
+    fallbackDocumentId
+  );
+}
+
+function getCurrentDocumentOption() {
+  if (!isEditMode.value || !props.document?.fileName) {
+    return null;
+  }
+
+  return {
+    id:
+      props.document.documentId ||
+      props.document.baseDocumentId ||
+      `current-document-${normalizeOptionText(props.document.fileName)}`,
+    label: props.document.fileName,
+  };
+}
+
+function normalizeOptionText(value) {
+  return value?.toString().normalize("NFC").replace(/\s+/g, " ").trim().toLowerCase() ?? "";
+}
+
+function toDateInputValue(value) {
+  if (!value) {
+    return "";
+  }
+
+  const normalizedValue = value.toString();
+  const isoMatch = normalizedValue.match(/^(\d{4})-(\d{2})-(\d{2})/);
+
+  if (isoMatch) {
+    return `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`;
+  }
+
+  const ruMatch = normalizedValue.match(/^(\d{2})\.(\d{2})\.(\d{4})/);
+
+  if (ruMatch) {
+    return `${ruMatch[3]}-${ruMatch[2]}-${ruMatch[1]}`;
+  }
+
+  const date = new Date(normalizedValue);
+
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  return date.toISOString().slice(0, 10);
+}
+
 function closeModal() {
+  if (props.isSubmitting) {
+    return;
+  }
+
   emit("update:modelValue", false);
 }
 
@@ -363,7 +548,7 @@ function setSelectedFile(file) {
 
   if (file.size > MAX_FILE_SIZE) {
     selectedFile.value = null;
-    fileError.value = "Размер файла не должен превышать 15 МБ.";
+    fileError.value = `Размер файла не должен превышать ${MAX_FILE_SIZE_LABEL}.`;
     return;
   }
 
@@ -371,6 +556,10 @@ function setSelectedFile(file) {
 }
 
 function submitForm() {
+  if (props.isSubmitting) {
+    return;
+  }
+
   validationAttempted.value = true;
   formError.value = "";
 
@@ -379,8 +568,23 @@ function submitForm() {
     return;
   }
 
+  if (!form.groups.length) {
+    formError.value = "Выберите целевую группу.";
+    return;
+  }
+
   if (isBaseMode.value && !form.baseDocumentId) {
     formError.value = "Выберите документ из базы.";
+    return;
+  }
+
+  if (isBaseMode.value && !hasApiBaseDocuments.value) {
+    formError.value = "В базе пока нет документов.";
+    return;
+  }
+
+  if (isBaseMode.value && isSyntheticDocumentId(form.baseDocumentId)) {
+    formError.value = "Не удалось определить файл документа. Выберите файл из списка.";
     return;
   }
 
@@ -389,16 +593,22 @@ function submitForm() {
     return;
   }
 
-  emit("create", {
+  emit(isEditMode.value ? "update" : "create", {
     mode: documentMode.value,
     title: form.title.trim(),
-    category: selectedCategory.value.label,
+    category: selectedCategory.value?.label ?? "",
+    categoryId: props.categories.length ? form.category : "",
     groups: selectedGroupItems.value.map((group) => group.label),
+    targetGroups: selectedGroupItems.value.map((group) => group.label),
     readUntil: form.readUntil.trim(),
-    fileName: isBaseMode.value ? selectedBaseDocument.value.label : selectedFile.value.name,
+    baseDocumentId: form.baseDocumentId,
+    file: selectedFile.value,
+    fileName: isBaseMode.value ? selectedBaseDocument.value?.label : selectedFile.value.name,
   });
+}
 
-  closeModal();
+function isSyntheticDocumentId(documentId) {
+  return documentId?.toString().startsWith("current-document-");
 }
 </script>
 

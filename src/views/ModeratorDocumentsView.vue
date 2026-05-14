@@ -1,16 +1,25 @@
 <script setup>
-import { computed, ref, watch } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import ModeratorDocumentCreateModal from "../components/documents/ModeratorDocumentCreateModal.vue";
 import UiKitButton from "../components/ui/UiKitButton.vue";
 import UiKitIcon from "../components/ui/UiKitIcon.vue";
 import UiKitTag from "../components/ui/UiKitTag.vue";
-import {
-  getStatusMeta,
-  moderatorDocumentsSeed,
-  moderatorEmployees,
-} from "../data/moderatorDocuments";
+import { getStatusMeta } from "../data/moderatorDocuments";
 import AppLayout from "../layouts/AppLayout.vue";
+import {
+  createModeratorDocument,
+  deleteModeratorDocument,
+  getDocumentCategories,
+  getDocumentFiles,
+  getDocumentStatuses,
+  getModeratorDocument,
+  getModeratorDocuments,
+  getUsers,
+  getUsersPosts,
+  updateModeratorDocument,
+} from "../services/moderatorDocumentsApi";
+import { getUserApiErrorMessage } from "../services/apiClient";
 
 const pageSize = 10;
 const route = useRoute();
@@ -21,18 +30,39 @@ const searchQuery = ref("");
 const currentPage = ref(1);
 const lastEditedDocumentId = ref(null);
 const isCreateModalOpen = ref(false);
-const documents = ref([...moderatorDocumentsSeed]);
+const editingDocument = ref(null);
+const documents = ref([]);
+const paginationMeta = ref({
+  current_page: 1,
+  last_page: 1,
+  per_page: pageSize,
+  total: 0,
+});
+const isLoading = ref(false);
+const loadError = ref("");
+const createError = ref("");
+const isCreatingDocument = ref(false);
+const categoryOptions = ref([]);
+const groupOptions = ref([]);
+const baseDocumentOptions = ref([]);
+const responsibleUsers = ref([]);
 
-const statusOptions = [
+const fallbackStatusOptions = [
   { value: "all", label: "Все статусы" },
   { value: "new", label: "Новый" },
   { value: "success", label: "Принят" },
   { value: "error", label: "Просрочен" },
 ];
+const apiStatusOptions = ref([]);
+
+const statusOptions = computed(() => [
+  fallbackStatusOptions[0],
+  ...(apiStatusOptions.value.length ? apiStatusOptions.value : fallbackStatusOptions.slice(1)),
+]);
 
 const responsibleOptions = computed(() => [
   { value: "all", label: "Не выбран" },
-  ...moderatorEmployees.map((employee) => ({
+  ...responsibleUsers.value.map((employee) => ({
     value: employee.id,
     label: employee.fullName,
   })),
@@ -40,16 +70,10 @@ const responsibleOptions = computed(() => [
 
 const isEmployeeMode = computed(() => selectedResponsible.value !== "all");
 
-const sourceDocuments = computed(() =>
-  isEmployeeMode.value
-    ? documents.value.filter((documentItem) => documentItem.employeeId === selectedResponsible.value)
-    : documents.value,
-);
-
 const filteredDocuments = computed(() => {
   const query = searchQuery.value.trim().toLowerCase();
 
-  return sourceDocuments.value.filter((documentItem) => {
+  return documents.value.filter((documentItem) => {
     const matchesStatus =
       selectedStatus.value === "all" || documentItem.status === selectedStatus.value;
     const matchesSearch =
@@ -62,13 +86,24 @@ const filteredDocuments = computed(() => {
   });
 });
 
-const totalPages = computed(() => Math.max(1, Math.ceil(filteredDocuments.value.length / pageSize)));
+const totalPages = computed(() => Math.max(1, Number(paginationMeta.value.last_page) || 1));
+const visibleDocuments = computed(() => filteredDocuments.value);
+const documentModalMode = computed(() => (editingDocument.value ? "edit" : "create"));
+const emptyMessage = computed(() => {
+  if (isLoading.value) {
+    return "Загрузка документов...";
+  }
 
-const visibleDocuments = computed(() => {
-  const startIndex = (currentPage.value - 1) * pageSize;
-
-  return filteredDocuments.value.slice(startIndex, startIndex + pageSize);
+  return loadError.value || "По вашему запросу документы не найдены";
 });
+
+function getApiErrorMessage(error, fallbackMessage) {
+  return getUserApiErrorMessage(error, fallbackMessage);
+}
+
+function normalizeOptionText(value) {
+  return value?.toString().normalize("NFC").replace(/\s+/g, " ").trim().toLowerCase() ?? "";
+}
 
 const paginationItems = computed(() => {
   const lastPage = totalPages.value;
@@ -135,11 +170,98 @@ watch([selectedStatus, selectedResponsible, searchQuery], () => {
   currentPage.value = 1;
 });
 
+watch([currentPage, selectedResponsible, searchQuery], () => {
+  loadDocuments();
+});
+
+watch(isCreateModalOpen, (isOpen) => {
+  if (!isOpen) {
+    editingDocument.value = null;
+    createError.value = "";
+  }
+});
+
 watch(totalPages, (nextTotalPages) => {
   if (currentPage.value > nextTotalPages) {
     currentPage.value = nextTotalPages;
   }
 });
+
+onMounted(() => {
+  loadDictionaries();
+  loadDocuments();
+});
+
+async function loadDictionaries() {
+  const [statuses, categories, groups, baseDocuments, users] = await Promise.allSettled([
+    getDocumentStatuses(),
+    getDocumentCategories(),
+    getUsersPosts(),
+    getDocumentFiles(),
+    getUsers(),
+  ]);
+
+  if (statuses.status === "fulfilled") {
+    apiStatusOptions.value = statuses.value;
+  }
+
+  if (categories.status === "fulfilled") {
+    categoryOptions.value = categories.value;
+  }
+
+  if (groups.status === "fulfilled") {
+    groupOptions.value = groups.value;
+  }
+
+  if (baseDocuments.status === "fulfilled") {
+    baseDocumentOptions.value = baseDocuments.value;
+  }
+
+  if (users.status === "fulfilled") {
+    responsibleUsers.value = users.value;
+  }
+}
+
+let lastRequestId = 0;
+
+async function loadDocuments() {
+  const requestId = ++lastRequestId;
+
+  isLoading.value = true;
+  loadError.value = "";
+
+  try {
+    const result = await getModeratorDocuments({
+      page: currentPage.value,
+      search: searchQuery.value.trim(),
+      user: isEmployeeMode.value ? selectedResponsible.value : "",
+    });
+
+    if (requestId !== lastRequestId) {
+      return;
+    }
+
+    documents.value = result.data;
+    paginationMeta.value = result.meta;
+  } catch {
+    if (requestId !== lastRequestId) {
+      return;
+    }
+
+    documents.value = [];
+    paginationMeta.value = {
+      current_page: 1,
+      last_page: 1,
+      per_page: pageSize,
+      total: 0,
+    };
+    loadError.value = "Не удалось загрузить документы";
+  } finally {
+    if (requestId === lastRequestId) {
+      isLoading.value = false;
+    }
+  }
+}
 
 function setPage(page) {
   if (!Number.isFinite(page) || page < 1 || page > totalPages.value) {
@@ -159,55 +281,131 @@ function openDocument(documentId) {
 }
 
 function createDocument() {
+  createError.value = "";
+  editingDocument.value = null;
   isCreateModalOpen.value = true;
 }
 
-function handleDocumentCreate(documentData) {
-  const nextId = Math.max(0, ...documents.value.map((documentItem) => documentItem.id)) + 1;
+async function handleDocumentCreate(documentData) {
+  createError.value = "";
+  isCreatingDocument.value = true;
 
-  documents.value = [
-    {
-      id: nextId,
-      title: documentData.title,
-      createdAt: formatCreatedAt(),
-      fileName: documentData.fileName,
-      status: "new",
-      employeeId: isEmployeeMode.value ? selectedResponsible.value : "employee-1",
-      category: documentData.category,
-      groups: documentData.groups,
-      readUntil: documentData.readUntil,
-      source: documentData.mode,
-    },
-    ...documents.value,
-  ];
+  try {
+    await createModeratorDocument(documentData);
+    selectedStatus.value = "all";
+    searchQuery.value = "";
+    currentPage.value = 1;
+    await loadDocuments();
+    isCreateModalOpen.value = false;
+    editingDocument.value = null;
+  } catch (error) {
+    selectedStatus.value = "all";
+    searchQuery.value = "";
+    currentPage.value = 1;
+    await loadDocuments();
 
-  selectedStatus.value = "all";
-  searchQuery.value = "";
-  currentPage.value = 1;
+    const wasCreated = documents.value.some(
+      (documentItem) => documentItem.title === documentData.title,
+    );
+
+    if (wasCreated) {
+      loadError.value = "";
+      isCreateModalOpen.value = false;
+      editingDocument.value = null;
+      return;
+    }
+
+    createError.value = getApiErrorMessage(error, "Не удалось создать документ");
+  } finally {
+    isCreatingDocument.value = false;
+  }
 }
 
-function editDocument(documentId) {
+async function editDocument(documentId) {
   lastEditedDocumentId.value = documentId;
+  createError.value = "";
+
+  try {
+    editingDocument.value = await getDocumentWithResolvedFile(documentId);
+    isCreateModalOpen.value = true;
+  } catch {
+    loadError.value = "Не удалось загрузить документ для редактирования";
+  }
 }
 
-function deleteDocument(documentId) {
-  documents.value = documents.value.filter((documentItem) => documentItem.id !== documentId);
+async function getDocumentWithResolvedFile(documentId) {
+  const documentItem = await getModeratorDocument(documentId);
+
+  if (documentItem.documentId || !documentItem.fileName) {
+    return documentItem;
+  }
+
+  let matchedFile = null;
+
+  try {
+    matchedFile = await resolveBaseDocumentByFileName(documentItem.fileName);
+  } catch {
+    matchedFile = null;
+  }
+
+  if (!matchedFile) {
+    return documentItem;
+  }
+
+  if (!baseDocumentOptions.value.some((document) => document.id === matchedFile.id)) {
+    baseDocumentOptions.value = [matchedFile, ...baseDocumentOptions.value];
+  }
+
+  return {
+    ...documentItem,
+    documentId: matchedFile.id,
+  };
 }
 
-function formatCreatedAt() {
-  const now = new Date();
-  const date = new Intl.DateTimeFormat("ru-RU", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  }).format(now);
-  const time = new Intl.DateTimeFormat("ru-RU", {
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }).format(now);
+async function resolveBaseDocumentByFileName(fileName) {
+  const normalizedFileName = normalizeOptionText(fileName);
+  const localMatch = baseDocumentOptions.value.find(
+    (document) => normalizeOptionText(document.label) === normalizedFileName,
+  );
 
-  return `${date} ${time}`;
+  if (localMatch) {
+    return localMatch;
+  }
+
+  const foundDocuments = await getDocumentFiles({ search: fileName });
+
+  return foundDocuments.find(
+    (document) => normalizeOptionText(document.label) === normalizedFileName,
+  );
+}
+
+async function handleDocumentUpdate(documentData) {
+  if (!editingDocument.value) {
+    return;
+  }
+
+  createError.value = "";
+  isCreatingDocument.value = true;
+
+  try {
+    await updateModeratorDocument(editingDocument.value.id, documentData);
+    await loadDocuments();
+    isCreateModalOpen.value = false;
+    editingDocument.value = null;
+  } catch (error) {
+    createError.value = getApiErrorMessage(error, "Не удалось обновить документ");
+  } finally {
+    isCreatingDocument.value = false;
+  }
+}
+
+async function deleteDocument(documentId) {
+  try {
+    await deleteModeratorDocument(documentId);
+    await loadDocuments();
+  } catch {
+    loadError.value = "Не удалось удалить документ";
+  }
 }
 </script>
 
@@ -303,17 +501,26 @@ function formatCreatedAt() {
               <button
                 class="moderator-documents__title-button"
                 type="button"
+                :title="documentItem.title"
                 @click="openDocument(documentItem.id)"
               >
                 {{ documentItem.title }}
               </button>
             </div>
 
-            <div class="moderator-documents__cell" data-label="Дата и время">
+            <div
+              class="moderator-documents__cell"
+              data-label="Дата и время"
+              :title="documentItem.createdAt"
+            >
               {{ documentItem.createdAt }}
             </div>
 
-            <div class="moderator-documents__cell" data-label="Прикрепленный файл">
+            <div
+              class="moderator-documents__cell"
+              data-label="Прикрепленный файл"
+              :title="documentItem.fileName"
+            >
               {{ documentItem.fileName }}
             </div>
 
@@ -356,7 +563,7 @@ function formatCreatedAt() {
           </div>
 
           <div v-if="!visibleDocuments.length" class="moderator-documents__empty">
-            По вашему запросу документы не найдены
+            {{ emptyMessage }}
           </div>
         </div>
       </div>
@@ -400,7 +607,15 @@ function formatCreatedAt() {
 
       <ModeratorDocumentCreateModal
         v-model="isCreateModalOpen"
+        :mode="documentModalMode"
+        :document="editingDocument"
+        :categories="categoryOptions"
+        :groups="groupOptions"
+        :base-documents="baseDocumentOptions"
+        :is-submitting="isCreatingDocument"
+        :submit-error="createError"
         @create="handleDocumentCreate"
+        @update="handleDocumentUpdate"
       />
     </section>
   </AppLayout>
@@ -520,10 +735,10 @@ function formatCreatedAt() {
 .moderator-documents__row {
   display: grid;
   grid-template-columns:
-    minmax(180px, 1.35fr)
-    minmax(150px, 0.85fr)
-    minmax(180px, 1fr)
-    minmax(96px, 0.45fr);
+    minmax(180px, 1.2fr)
+    minmax(150px, 0.75fr)
+    minmax(0, 1.35fr)
+    96px;
   gap: 16px;
   align-items: center;
   padding: 16px;
@@ -532,10 +747,10 @@ function formatCreatedAt() {
 .moderator-documents__table--status .moderator-documents__head,
 .moderator-documents__table--status .moderator-documents__row {
   grid-template-columns:
-    minmax(180px, 1.35fr)
-    minmax(150px, 0.85fr)
-    minmax(180px, 1fr)
-    minmax(96px, 0.45fr);
+    minmax(180px, 1.2fr)
+    minmax(150px, 0.75fr)
+    minmax(0, 1.35fr)
+    96px;
 }
 
 .moderator-documents__head {
@@ -545,6 +760,7 @@ function formatCreatedAt() {
 
 .moderator-documents__head-cell {
   min-width: 0;
+  overflow: hidden;
   color: var(--color-text-strong);
   font-family: var(--font-family-base);
   font-size: 12px;
@@ -583,6 +799,7 @@ function formatCreatedAt() {
 
 .moderator-documents__cell {
   min-width: 0;
+  overflow: hidden;
   color: var(--color-text-strong);
   font-family: var(--font-family-base);
   font-size: 14px;
@@ -591,9 +808,16 @@ function formatCreatedAt() {
   letter-spacing: 0.28px;
 }
 
+.moderator-documents__cell:not(.moderator-documents__cell--last) {
+  display: block;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .moderator-documents__title-button {
-  display: inline;
+  display: block;
   max-width: 100%;
+  overflow: hidden;
   padding: 0;
   border: 0;
   background: transparent;
@@ -601,6 +825,8 @@ function formatCreatedAt() {
   font: inherit;
   letter-spacing: inherit;
   text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   cursor: pointer;
 }
 
@@ -616,7 +842,9 @@ function formatCreatedAt() {
 
 .moderator-documents__actions {
   display: flex;
+  width: 100%;
   align-items: center;
+  justify-content: center;
   gap: 16px;
 }
 
@@ -764,9 +992,13 @@ function formatCreatedAt() {
   }
 
   .moderator-documents__cell {
-    display: flex;
+    display: block;
+    min-width: 0;
+    overflow: hidden;
     flex-direction: column;
     gap: 4px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .moderator-documents__cell:nth-child(1) {
@@ -783,17 +1015,27 @@ function formatCreatedAt() {
 
   .moderator-documents__cell::before {
     content: attr(data-label);
+    display: block;
+    margin-bottom: 4px;
+    overflow: hidden;
     color: var(--color-text-muted);
     font-family: var(--font-family-base);
     font-size: 11px;
     font-weight: 600;
     line-height: 14px;
     letter-spacing: 0.22px;
+    text-overflow: ellipsis;
     text-transform: uppercase;
+    white-space: nowrap;
   }
 
   .moderator-documents__title-button {
+    display: block;
+    max-width: 100%;
     font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .moderator-documents__cell--last {

@@ -1,46 +1,64 @@
 <script setup>
-import { computed, ref, watch } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import UiKitIcon from "../components/ui/UiKitIcon.vue";
 import UiKitTag from "../components/ui/UiKitTag.vue";
-import {
-  getDocumentById,
-  getDocumentRecipients,
-  getStatusMeta,
-  moderatorDocumentsSeed,
-} from "../data/moderatorDocuments";
+import { getStatusMeta } from "../data/moderatorDocuments";
 import AppLayout from "../layouts/AppLayout.vue";
+import {
+  getDocumentStatuses,
+  getModeratorDocumentUsers,
+} from "../services/moderatorDocumentsApi";
 
 const pageSize = 11;
 const route = useRoute();
 const router = useRouter();
 const currentPage = ref(1);
 const selectedStatus = ref("all");
+const recipients = ref([]);
+const documentItem = ref({
+  id: "",
+  title: "Документ",
+  createdAt: "дд.мм.гггг 00:00",
+  fileName: "Название файла",
+});
+const paginationMeta = ref({
+  current_page: 1,
+  last_page: 1,
+  per_page: pageSize,
+  total: 0,
+});
+const isLoading = ref(false);
+const loadError = ref("");
 
-const statusOptions = [
+const fallbackStatusOptions = [
   { value: "all", label: "Все статусы" },
   { value: "new", label: "Новый" },
   { value: "success", label: "Принят" },
   { value: "error", label: "Просрочен" },
 ];
+const apiStatusOptions = ref([]);
 
-const documentId = computed(() => Number(route.params.documentId));
-const documentItem = computed(() => getDocumentById(documentId.value) ?? moderatorDocumentsSeed[0]);
-const recipients = computed(() => getDocumentRecipients(documentItem.value.id));
+const statusOptions = computed(() => [
+  fallbackStatusOptions[0],
+  ...(apiStatusOptions.value.length ? apiStatusOptions.value : fallbackStatusOptions.slice(1)),
+]);
+
+const documentId = computed(() => route.params.documentId?.toString() ?? "");
 const filteredRecipients = computed(() =>
   selectedStatus.value === "all"
     ? recipients.value
     : recipients.value.filter((recipient) => recipient.status === selectedStatus.value),
 );
 
-const totalPages = computed(() =>
-  Math.max(1, Math.ceil(filteredRecipients.value.length / pageSize)),
-);
+const totalPages = computed(() => Math.max(1, Number(paginationMeta.value.last_page) || 1));
+const visibleRecipients = computed(() => filteredRecipients.value);
+const emptyMessage = computed(() => {
+  if (isLoading.value) {
+    return "Загрузка сотрудников...";
+  }
 
-const visibleRecipients = computed(() => {
-  const startIndex = (currentPage.value - 1) * pageSize;
-
-  return filteredRecipients.value.slice(startIndex, startIndex + pageSize);
+  return loadError.value || "По выбранному статусу сотрудники не найдены";
 });
 
 const paginationItems = computed(() => {
@@ -92,11 +110,72 @@ watch([documentId, selectedStatus], () => {
   currentPage.value = 1;
 });
 
+watch([documentId, currentPage], () => {
+  loadRecipients();
+});
+
 watch(totalPages, (nextTotalPages) => {
   if (currentPage.value > nextTotalPages) {
     currentPage.value = nextTotalPages;
   }
 });
+
+onMounted(() => {
+  loadStatuses();
+  loadRecipients();
+});
+
+async function loadStatuses() {
+  try {
+    apiStatusOptions.value = await getDocumentStatuses();
+  } catch {
+    apiStatusOptions.value = [];
+  }
+}
+
+let lastRequestId = 0;
+
+async function loadRecipients() {
+  if (!documentId.value) {
+    return;
+  }
+
+  const requestId = ++lastRequestId;
+
+  isLoading.value = true;
+  loadError.value = "";
+
+  try {
+    const result = await getModeratorDocumentUsers(documentId.value, {
+      page: currentPage.value,
+    });
+
+    if (requestId !== lastRequestId) {
+      return;
+    }
+
+    recipients.value = result.data;
+    documentItem.value = result.documentItem;
+    paginationMeta.value = result.meta;
+  } catch {
+    if (requestId !== lastRequestId) {
+      return;
+    }
+
+    recipients.value = [];
+    paginationMeta.value = {
+      current_page: 1,
+      last_page: 1,
+      per_page: pageSize,
+      total: 0,
+    };
+    loadError.value = "Не удалось загрузить сотрудников";
+  } finally {
+    if (requestId === lastRequestId) {
+      isLoading.value = false;
+    }
+  }
+}
 
 function setPage(page) {
   if (!Number.isFinite(page) || page < 1 || page > totalPages.value) {
@@ -197,17 +276,26 @@ function openEmployeeDocuments(employeeId) {
               <button
                 class="document-recipients__employee-button"
                 type="button"
+                :title="recipient.employeeName"
                 @click="openEmployeeDocuments(recipient.employeeId)"
               >
                 {{ recipient.employeeName }}
               </button>
             </div>
 
-            <div class="document-recipients__cell" data-label="Дата и время">
+            <div
+              class="document-recipients__cell"
+              data-label="Дата и время"
+              :title="recipient.createdAt"
+            >
               {{ recipient.createdAt }}
             </div>
 
-            <div class="document-recipients__cell" data-label="Прикрепленный файл">
+            <div
+              class="document-recipients__cell"
+              data-label="Прикрепленный файл"
+              :title="recipient.fileName"
+            >
               {{ recipient.fileName }}
             </div>
 
@@ -220,7 +308,7 @@ function openEmployeeDocuments(employeeId) {
           </div>
 
           <div v-if="!visibleRecipients.length" class="document-recipients__empty">
-            По выбранному статусу сотрудники не найдены
+            {{ emptyMessage }}
           </div>
         </div>
       </div>
@@ -379,6 +467,7 @@ function openEmployeeDocuments(employeeId) {
 
 .document-recipients__head-cell {
   min-width: 0;
+  overflow: hidden;
   color: var(--color-text-strong);
   font-family: var(--font-family-base);
   font-size: 12px;
@@ -417,6 +506,7 @@ function openEmployeeDocuments(employeeId) {
 
 .document-recipients__cell {
   min-width: 0;
+  overflow: hidden;
   color: var(--color-text-strong);
   font-family: var(--font-family-base);
   font-size: 14px;
@@ -425,9 +515,16 @@ function openEmployeeDocuments(employeeId) {
   letter-spacing: 0.28px;
 }
 
+.document-recipients__cell:not(.document-recipients__cell--status) {
+  display: block;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .document-recipients__employee-button {
-  display: inline;
+  display: block;
   max-width: 100%;
+  overflow: hidden;
   padding: 0;
   border: 0;
   background: transparent;
@@ -435,6 +532,8 @@ function openEmployeeDocuments(employeeId) {
   font: inherit;
   letter-spacing: inherit;
   text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   cursor: pointer;
 }
 
@@ -548,20 +647,37 @@ function openEmployeeDocuments(employeeId) {
   }
 
   .document-recipients__cell {
-    display: flex;
+    display: block;
+    min-width: 0;
+    overflow: hidden;
     flex-direction: column;
     gap: 4px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .document-recipients__employee-button {
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .document-recipients__cell::before {
     content: attr(data-label);
+    display: block;
+    margin-bottom: 4px;
+    overflow: hidden;
     color: var(--color-text-strong);
     font-family: var(--font-family-base);
     font-size: 12px;
     font-weight: 600;
     line-height: 1;
     letter-spacing: 0.24px;
+    text-overflow: ellipsis;
     text-transform: uppercase;
+    white-space: nowrap;
   }
 
   .document-recipients__cell--status {

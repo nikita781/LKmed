@@ -44,6 +44,9 @@ const documentDetails = computed(() => ({
 
 const currentPageLabel = computed(() => `Стр. ${selectedPage.value}/6`);
 const zoomScale = computed(() => Number(zoom.value) / 100);
+const isAlreadyAcknowledged = computed(
+  () => props.document?.status === "success" || props.document?.statusVariant === "success",
+);
 
 watch(
   () => [props.modelValue, props.document?.id],
@@ -131,7 +134,7 @@ function selectPage(page) {
 }
 
 function acknowledgeDocument() {
-  if (!hasReadDocument.value || !props.document) {
+  if (isAlreadyAcknowledged.value || !hasReadDocument.value || !props.document) {
     return;
   }
 
@@ -294,10 +297,10 @@ function confirmAcknowledgement() {
           <button
             class="document-preview__acknowledge"
             type="button"
-            :disabled="!hasReadDocument"
+            :disabled="isAlreadyAcknowledged || !hasReadDocument"
             @click="acknowledgeDocument"
           >
-            Ознакомлен(а)
+            {{ isAlreadyAcknowledged ? "Ознакомлено" : "Ознакомлен(а)" }}
           </button>
         </div>
       </aside>
