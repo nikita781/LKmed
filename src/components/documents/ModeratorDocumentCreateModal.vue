@@ -182,10 +182,7 @@
                 <span class="create-document-modal__info-icon">
                   <UiKitIcon name="info" :size="24" />
                 </span>
-                <p>
-                  Максимальный размер вложений не должен превышать {{ MAX_FILE_SIZE_LABEL }}.
-                  Разрешенные типы файлов: .pdf, .doc, .jpg.
-                </p>
+                <p>Разрешенные типы файлов: .pdf, .doc, .jpg.</p>
               </div>
             </div>
 
@@ -212,9 +209,6 @@ import { computed, onBeforeUnmount, reactive, ref, watch } from "vue";
 import UiKitButton from "../ui/UiKitButton.vue";
 import UiKitIcon from "../ui/UiKitIcon.vue";
 
-// The current API rejects bigger files before Laravel validation reaches the controller.
-const MAX_FILE_SIZE = 2 * 1024 * 1024;
-const MAX_FILE_SIZE_LABEL = "2 МБ";
 const ACCEPTED_EXTENSIONS = [".pdf", ".doc", ".jpg"];
 
 const props = defineProps({
@@ -543,12 +537,6 @@ function setSelectedFile(file) {
   if (!isAcceptedType) {
     selectedFile.value = null;
     fileError.value = "Выберите файл в формате .pdf, .doc или .jpg.";
-    return;
-  }
-
-  if (file.size > MAX_FILE_SIZE) {
-    selectedFile.value = null;
-    fileError.value = `Размер файла не должен превышать ${MAX_FILE_SIZE_LABEL}.`;
     return;
   }
 

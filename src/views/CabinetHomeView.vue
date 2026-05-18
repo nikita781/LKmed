@@ -11,6 +11,7 @@ import {
   signEmployeeDocument,
 } from "../services/employeeDocumentsApi";
 import { getUserApiErrorMessage } from "../services/apiClient";
+import { useAuth } from "../composables/useAuth";
 
 const selectedStatus = ref("all");
 const searchQuery = ref("");
@@ -29,7 +30,8 @@ const acknowledgedDocumentIds = ref(new Set());
 const isLoading = ref(false);
 const loadError = ref("");
 const actionError = ref("");
-const employeeName = "Тестовый медработник";
+const { user } = useAuth();
+const employeeName = computed(() => user.value?.fullName || "Медработник");
 let loadRequestId = 0;
 let searchTimer = null;
 

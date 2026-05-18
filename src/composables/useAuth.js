@@ -1,33 +1,9 @@
 import { computed, reactive, toRefs } from "vue";
-import { loginWithCredentials } from "../services/authService";
-
-const AUTH_STORAGE_KEY = "lkmed-auth-session";
-
-function restorePersistedSession() {
-  try {
-    const rawSession = window.localStorage.getItem(AUTH_STORAGE_KEY);
-
-    if (!rawSession) {
-      return null;
-    }
-
-    return JSON.parse(rawSession);
-  } catch {
-    return null;
-  }
-}
-
-function persistSession(session) {
-  if (!session) {
-    window.localStorage.removeItem(AUTH_STORAGE_KEY);
-    return;
-  }
-
-  window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(session));
-}
+import { loginWithCredentials, logoutWithToken } from "../services/authService";
+import { readStoredSession, writeStoredSession } from "../services/authSession";
 
 const state = reactive({
-  session: restorePersistedSession(),
+  session: readStoredSession(),
   status: "idle",
   errorMessage: "",
 });
@@ -39,7 +15,7 @@ async function login(credentials) {
   try {
     const session = await loginWithCredentials(credentials);
     state.session = session;
-    persistSession(session);
+    writeStoredSession(session);
     state.status = "authenticated";
 
     return session;
@@ -50,11 +26,19 @@ async function login(credentials) {
   }
 }
 
-function logout() {
+async function logout() {
+  const accessToken = state.session?.accessToken;
+
   state.session = null;
   state.status = "idle";
   state.errorMessage = "";
-  persistSession(null);
+  writeStoredSession(null);
+
+  try {
+    await logoutWithToken(accessToken);
+  } catch (error) {
+    console.error("[Auth logout error]", error);
+  }
 }
 
 export function useAuth() {

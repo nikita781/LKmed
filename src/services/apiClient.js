@@ -1,3 +1,5 @@
+import { getStoredAccessToken } from "./authSession";
+
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000/api").replace(
   /\/$/,
   "",
@@ -104,6 +106,9 @@ function translateValidationMessage(message) {
 
 function getUserFacingErrorMessage(status, messages, fallbackMessage) {
   const normalizedMessages = uniqueMessages(messages);
+  const readableMessage = normalizedMessages.find(
+    (message) => /[а-яё]/i.test(message) && !TECHNICAL_ERROR_PATTERN.test(message),
+  );
 
   if (status === 422) {
     const validationMessages = uniqueMessages(
@@ -114,7 +119,7 @@ function getUserFacingErrorMessage(status, messages, fallbackMessage) {
   }
 
   if (status === 401 || status === 419) {
-    return "Сессия истекла. Войдите заново.";
+    return readableMessage || "Сессия истекла. Войдите заново.";
   }
 
   if (status === 403) {
@@ -128,10 +133,6 @@ function getUserFacingErrorMessage(status, messages, fallbackMessage) {
   if (status >= 500) {
     return "На сервере произошла ошибка. Попробуйте позже.";
   }
-
-  const readableMessage = normalizedMessages.find(
-    (message) => /[а-яё]/i.test(message) && !TECHNICAL_ERROR_PATTERN.test(message),
-  );
 
   return readableMessage || fallbackMessage || DEFAULT_API_ERROR_MESSAGE;
 }
@@ -159,7 +160,7 @@ function logApiError({ errorPayload, messages, method, status, url }) {
 }
 
 export async function apiClient(path, options = {}) {
-  const { body, headers = {}, method = "GET", query, ...restOptions } = options;
+  const { body, headers = {}, method = "GET", query, skipAuth = false, ...restOptions } = options;
   const hasBody = body !== undefined && body !== null;
   const isFormData = typeof FormData !== "undefined" && body instanceof FormData;
   const requestHeaders =
@@ -169,11 +170,23 @@ export async function apiClient(path, options = {}) {
           "Content-Type": "application/json",
           ...headers,
         };
+  const finalHeaders = {
+    ...requestHeaders,
+  };
+  const hasExplicitAuthHeader = "Authorization" in finalHeaders || "authorization" in finalHeaders;
+
+  if (!skipAuth && !hasExplicitAuthHeader) {
+    const accessToken = getStoredAccessToken();
+
+    if (accessToken) {
+      finalHeaders.Authorization = `Bearer ${accessToken}`;
+    }
+  }
 
   const url = buildUrl(path, query);
   const response = await fetch(url, {
     method,
-    headers: requestHeaders,
+    headers: finalHeaders,
     body: hasBody ? (isFormData ? body : JSON.stringify(body)) : undefined,
     ...restOptions,
   });

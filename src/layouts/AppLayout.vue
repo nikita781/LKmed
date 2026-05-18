@@ -27,9 +27,9 @@ const documentsRouteName = computed(() =>
   role.value === "moderator" ? "moderatorDocuments" : "cabinet",
 );
 
-function handleLogout() {
-  logout();
-  router.push({
+async function handleLogout() {
+  await logout();
+  await router.push({
     name: "login",
   });
 }

@@ -1,9 +1,15 @@
 <script setup>
-import { computed, nextTick, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
+import * as pdfjsLib from "pdfjs-dist";
 import DocumentAcknowledgementModal from "./DocumentAcknowledgementModal.vue";
 import UiKitIcon from "../ui/UiKitIcon.vue";
 import UiKitModal from "../ui/UiKitModal.vue";
 import UiKitTag from "../ui/UiKitTag.vue";
+
+pdfjsLib.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
+
+const MAIN_RENDER_WIDTH = 900;
+const THUMBNAIL_RENDER_WIDTH = 134;
 
 const props = defineProps({
   modelValue: {
@@ -22,15 +28,23 @@ const props = defineProps({
 
 const emit = defineEmits(["update:modelValue", "acknowledge"]);
 
-const pages = Array.from({ length: 6 }, (_, index) => index + 1);
+const pageCount = ref(0);
 const selectedPage = ref(1);
 const zoom = ref("100");
+const isLoading = ref(false);
+const loadError = ref("");
+const isUnsupported = ref(false);
 const hasReadDocument = ref(false);
 const viewerRef = ref(null);
 const pageElements = ref({});
+const mainCanvases = ref({});
+const thumbnailCanvases = ref({});
 const isProgrammaticScroll = ref(false);
 const isAcknowledgementModalOpen = ref(false);
 const acknowledgedAt = ref("");
+
+let pdfDocument = null;
+let renderToken = 0;
 let scrollSettleTimer = null;
 
 const documentDetails = computed(() => ({
@@ -42,46 +56,174 @@ const documentDetails = computed(() => ({
   statusVariant: props.document?.statusVariant || "new",
 }));
 
-const currentPageLabel = computed(() => `Стр. ${selectedPage.value}/6`);
+const documentSource = computed(() =>
+  (props.document?.filePath || "").replace(/^https?:\/\/[^/]+/i, ""),
+);
+
+const fileExtension = computed(() => {
+  const source = (props.document?.fileName || props.document?.filePath || "").split(/[?#]/)[0];
+  const dotIndex = source.lastIndexOf(".");
+
+  return dotIndex >= 0 ? source.slice(dotIndex + 1).toLowerCase() : "";
+});
+
+const isPdfDocument = computed(
+  () => Boolean(documentSource.value) && fileExtension.value === "pdf",
+);
+
+const pages = computed(() => Array.from({ length: pageCount.value }, (_, index) => index + 1));
+const totalPages = computed(() => pageCount.value || 1);
+const currentPageLabel = computed(() => `Стр. ${selectedPage.value}/${totalPages.value}`);
 const zoomScale = computed(() => Number(zoom.value) / 100);
+
 const isAlreadyAcknowledged = computed(
   () => props.document?.status === "success" || props.document?.statusVariant === "success",
 );
 
-watch(
-  () => [props.modelValue, props.document?.id],
-  ([isOpen]) => {
-    if (!isOpen) {
-      return;
-    }
+const viewerMessage = computed(() => {
+  if (isLoading.value) {
+    return "Загрузка документа…";
+  }
 
-    selectedPage.value = 1;
-    zoom.value = "100";
-    hasReadDocument.value = false;
-    isAcknowledgementModalOpen.value = false;
-    acknowledgedAt.value = "";
+  if (loadError.value) {
+    return loadError.value;
+  }
 
-    nextTick(() => {
-      if (viewerRef.value) {
-        viewerRef.value.scrollTop = 0;
-      }
-    });
-  },
-);
+  if (isUnsupported.value) {
+    return "Предпросмотр для этого формата документа недоступен.";
+  }
 
-watch(zoomScale, () => {
-  nextTick(() => {
-    if (viewerRef.value) {
-      viewerRef.value.scrollLeft = 0;
-    }
-
-    updateReadProgress();
-  });
+  return "";
 });
 
 function setPageElement(element, page) {
   if (element) {
     pageElements.value[page] = element;
+  }
+}
+
+function setMainCanvas(element, page) {
+  if (element) {
+    mainCanvases.value[page] = element;
+  }
+}
+
+function setThumbnailCanvas(element, page) {
+  if (element) {
+    thumbnailCanvases.value[page] = element;
+  }
+}
+
+function resetViewerState() {
+  selectedPage.value = 1;
+  zoom.value = "100";
+  hasReadDocument.value = false;
+  loadError.value = "";
+  isUnsupported.value = false;
+  pageCount.value = 0;
+  pageElements.value = {};
+  mainCanvases.value = {};
+  thumbnailCanvases.value = {};
+  isAcknowledgementModalOpen.value = false;
+  acknowledgedAt.value = "";
+}
+
+function destroyDocument() {
+  if (pdfDocument) {
+    pdfDocument.destroy();
+    pdfDocument = null;
+  }
+}
+
+async function renderPage(pdf, pageNumber, token) {
+  const page = await pdf.getPage(pageNumber);
+
+  if (token !== renderToken) {
+    return;
+  }
+
+  const mainCanvas = mainCanvases.value[pageNumber];
+
+  if (!mainCanvas) {
+    return;
+  }
+
+  const baseViewport = page.getViewport({ scale: 1 });
+  const viewport = page.getViewport({ scale: MAIN_RENDER_WIDTH / baseViewport.width });
+
+  mainCanvas.width = viewport.width;
+  mainCanvas.height = viewport.height;
+  await page.render({ canvas: mainCanvas, viewport }).promise;
+
+  if (token !== renderToken) {
+    return;
+  }
+
+  const thumbnailCanvas = thumbnailCanvases.value[pageNumber];
+
+  if (thumbnailCanvas) {
+    thumbnailCanvas.width = THUMBNAIL_RENDER_WIDTH;
+    thumbnailCanvas.height = Math.round(
+      THUMBNAIL_RENDER_WIDTH * (mainCanvas.height / mainCanvas.width),
+    );
+    thumbnailCanvas
+      .getContext("2d")
+      .drawImage(mainCanvas, 0, 0, thumbnailCanvas.width, thumbnailCanvas.height);
+  }
+}
+
+async function loadDocument() {
+  const token = ++renderToken;
+
+  destroyDocument();
+  resetViewerState();
+
+  if (!props.document) {
+    return;
+  }
+
+  if (!isPdfDocument.value) {
+    isUnsupported.value = true;
+    hasReadDocument.value = true;
+    return;
+  }
+
+  isLoading.value = true;
+
+  try {
+    const pdf = await pdfjsLib.getDocument({ url: documentSource.value }).promise;
+
+    if (token !== renderToken) {
+      pdf.destroy();
+      return;
+    }
+
+    pdfDocument = pdf;
+    pageCount.value = pdf.numPages;
+    await nextTick();
+
+    for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+      if (token !== renderToken) {
+        return;
+      }
+
+      await renderPage(pdf, pageNumber, token);
+    }
+
+    await nextTick();
+
+    if (token === renderToken) {
+      updateReadProgress();
+    }
+  } catch {
+    if (token === renderToken) {
+      loadError.value = "Не удалось загрузить документ.";
+      hasReadDocument.value = true;
+    }
+  } finally {
+    if (token === renderToken) {
+      isLoading.value = false;
+    }
   }
 }
 
@@ -100,7 +242,7 @@ function updateReadProgress() {
   let closestPage = selectedPage.value;
   let closestDistance = Number.POSITIVE_INFINITY;
 
-  pages.forEach((page) => {
+  pages.value.forEach((page) => {
     const pageElement = pageElements.value[page];
 
     if (!pageElement) {
@@ -159,6 +301,34 @@ function confirmAcknowledgement() {
   isAcknowledgementModalOpen.value = false;
   emit("update:modelValue", false);
 }
+
+watch(
+  () => [props.modelValue, props.document?.id],
+  ([isOpen]) => {
+    if (!isOpen) {
+      renderToken += 1;
+      destroyDocument();
+      return;
+    }
+
+    loadDocument();
+  },
+);
+
+watch(zoomScale, () => {
+  nextTick(() => {
+    if (viewerRef.value) {
+      viewerRef.value.scrollLeft = 0;
+    }
+
+    updateReadProgress();
+  });
+});
+
+onBeforeUnmount(() => {
+  window.clearTimeout(scrollSettleTimer);
+  destroyDocument();
+});
 </script>
 
 <template>
@@ -179,8 +349,10 @@ function confirmAcknowledgement() {
             @click="selectPage(page)"
           >
             <span class="document-preview__thumbnail-paper" aria-hidden="true">
-              <span class="document-preview__thumbnail-title"></span>
-              <span v-for="line in 13" :key="line" class="document-preview__thumbnail-line"></span>
+              <canvas
+                :ref="(element) => setThumbnailCanvas(element, page)"
+                class="document-preview__thumbnail-canvas"
+              ></canvas>
             </span>
             <span class="document-preview__thumbnail-label">Стр. {{ page }}</span>
           </button>
@@ -207,40 +379,21 @@ function confirmAcknowledgement() {
             :style="{ '--document-page-scale': zoomScale }"
             @scroll="updateReadProgress"
           >
+            <p v-if="viewerMessage" class="document-preview__viewer-message">
+              {{ viewerMessage }}
+            </p>
+
             <article
               v-for="page in pages"
               :key="page"
               :ref="(element) => setPageElement(element, page)"
               class="document-preview__paper"
-              :class="{ 'document-preview__paper--stamp': page > 1 }"
               aria-label="Страница документа"
             >
-              <div class="document-preview__document-content">
-                <div class="document-preview__document-title">ДОВЕРЕННОСТЬ</div>
-                <div class="document-preview__document-line document-preview__document-line--wide"></div>
-                <div class="document-preview__document-caption">
-                  (место и дата выдачи доверенности прописью)
-                </div>
-
-                <div class="document-preview__text-block">
-                  <span v-for="line in 9" :key="`top-${line}`" class="document-preview__document-line"></span>
-                </div>
-
-                <div v-if="page > 2" class="document-preview__barcode" aria-hidden="true"></div>
-
-                <div class="document-preview__text-block document-preview__text-block--spaced">
-                  <span v-for="line in 12" :key="`middle-${line}`" class="document-preview__document-line"></span>
-                </div>
-
-                <div class="document-preview__signature">
-                  <span class="document-preview__document-line"></span>
-                  <span class="document-preview__signature-caption">(подпись)</span>
-                </div>
-
-                <div class="document-preview__text-block">
-                  <span v-for="line in 7" :key="`bottom-${line}`" class="document-preview__document-line"></span>
-                </div>
-              </div>
+              <canvas
+                :ref="(element) => setMainCanvas(element, page)"
+                class="document-preview__page-canvas"
+              ></canvas>
             </article>
           </div>
         </div>
@@ -373,12 +526,9 @@ function confirmAcknowledgement() {
 }
 
 .document-preview__thumbnail-paper {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
+  display: block;
   width: 67px;
-  height: 95px;
-  padding: 7px 7px 8px;
+  min-height: 95px;
   overflow: hidden;
   border: 1px solid #dce0e5;
   border-radius: 2px;
@@ -388,26 +538,10 @@ function confirmAcknowledgement() {
   user-select: none;
 }
 
-.document-preview__thumbnail-title {
-  align-self: center;
-  width: 28px;
-  height: 3px;
-  margin-bottom: 3px;
-  background: #777777;
-}
-
-.document-preview__thumbnail-line {
+.document-preview__thumbnail-canvas {
+  display: block;
   width: 100%;
-  height: 2px;
-  background: #9b9b9b;
-}
-
-.document-preview__thumbnail-line:nth-child(3n) {
-  width: 72%;
-}
-
-.document-preview__thumbnail-line:nth-child(4n) {
-  width: 54%;
+  height: auto;
 }
 
 .document-preview__thumbnail-label {
@@ -520,103 +654,32 @@ function confirmAcknowledgement() {
   background: var(--color-border);
 }
 
+.document-preview__viewer-message {
+  margin: auto;
+  padding: 24px;
+  color: var(--color-text-muted);
+  font-family: var(--font-family-base);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 20px;
+  letter-spacing: 0.28px;
+  text-align: center;
+}
+
 .document-preview__paper {
   flex: none;
   width: calc(450px * var(--document-page-scale, 1));
-  height: calc(638px * var(--document-page-scale, 1));
-  min-height: calc(638px * var(--document-page-scale, 1));
   overflow: hidden;
   border-radius: 6px;
   background: #ffffff;
   box-shadow: 0 0 10px rgba(36, 36, 36, 0.2);
-  color: #242424;
-  pointer-events: auto;
   user-select: none;
-  -webkit-user-drag: none;
 }
 
-.document-preview__document-content {
-  display: flex;
-  flex-direction: column;
-  width: 450px;
-  height: 638px;
-  padding: 28px 34px;
-  font-family: "Courier New", monospace;
-  font-size: 9px;
-  line-height: 1.3;
-  transform: scale(var(--document-page-scale, 1));
-  transform-origin: top left;
-}
-
-.document-preview__document-title {
-  margin-bottom: 20px;
-  text-align: center;
-  font-size: 10px;
-  font-weight: 700;
-}
-
-.document-preview__document-caption {
-  margin: 3px 0 18px;
-  text-align: center;
-}
-
-.document-preview__text-block {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.document-preview__text-block--spaced {
-  margin-top: 24px;
-}
-
-.document-preview__document-line {
+.document-preview__page-canvas {
   display: block;
   width: 100%;
-  height: 1px;
-  background: #242424;
-}
-
-.document-preview__document-line:nth-child(3n) {
-  width: 82%;
-}
-
-.document-preview__document-line:nth-child(4n) {
-  width: 64%;
-}
-
-.document-preview__document-line--wide {
-  width: 100%;
-}
-
-.document-preview__barcode {
-  width: 126px;
-  height: 44px;
-  margin: 24px 0 0;
-  background: repeating-linear-gradient(
-    90deg,
-    #242424 0,
-    #242424 2px,
-    #ffffff 2px,
-    #ffffff 4px,
-    #242424 4px,
-    #242424 5px,
-    #ffffff 5px,
-    #ffffff 9px
-  );
-}
-
-.document-preview__signature {
-  display: flex;
-  flex-direction: column;
-  align-self: flex-end;
-  width: 132px;
-  margin: 34px 18px 22px 0;
-  text-align: center;
-}
-
-.document-preview__signature-caption {
-  margin-top: 4px;
+  height: auto;
 }
 
 .document-preview__details {
