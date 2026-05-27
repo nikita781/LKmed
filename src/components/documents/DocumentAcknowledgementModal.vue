@@ -1,6 +1,4 @@
 <script setup>
-import UiKitIcon from "../ui/UiKitIcon.vue";
-
 defineProps({
   modelValue: {
     type: Boolean,
@@ -20,12 +18,7 @@ defineProps({
   },
 });
 
-const emit = defineEmits(["confirm", "update:modelValue", "close"]);
-
-function closeModal() {
-  emit("update:modelValue", false);
-  emit("close");
-}
+const emit = defineEmits(["confirm"]);
 </script>
 
 <template>
@@ -39,10 +32,6 @@ function closeModal() {
       >
         <header class="document-acknowledgement__header">
           <h2 class="document-acknowledgement__title">Подтверждение</h2>
-
-          <button class="document-acknowledgement__close" type="button" aria-label="Закрыть" @click="closeModal">
-            <UiKitIcon name="close" :size="24" />
-          </button>
         </header>
 
         <p class="document-acknowledgement__text">
@@ -101,21 +90,6 @@ function closeModal() {
   letter-spacing: 0.4px;
   text-align: left;
   text-transform: uppercase;
-}
-
-.document-acknowledgement__close {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: none;
-  width: 40px;
-  height: 40px;
-  padding: 8px;
-  border: 0;
-  border-radius: 100px;
-  background: var(--color-secondary);
-  color: var(--color-primary);
-  cursor: pointer;
 }
 
 .document-acknowledgement__text {

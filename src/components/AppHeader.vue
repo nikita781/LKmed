@@ -23,10 +23,10 @@ const props = defineProps({
 
 const emit = defineEmits(["logout"]);
 
-const resolvedName = computed(() => props.userName.trim() || "Фамилия Имя Отчество");
+const resolvedName = computed(() => props.userName.trim());
 const nameParts = computed(() => resolvedName.value.split(/\s+/).filter(Boolean));
-const profileLineOne = computed(() => nameParts.value[0] ?? "Фамилия");
-const profileLineTwo = computed(() => nameParts.value.slice(1).join(" ") || "Имя Отчество");
+const profileLineOne = computed(() => nameParts.value[0] ?? "Пользователь");
+const profileLineTwo = computed(() => nameParts.value.slice(1).join(" "));
 
 function handleLogout() {
   emit("logout");
@@ -84,7 +84,7 @@ function handleLogout() {
 
             <p class="app-header__profile-name">
               <span>{{ profileLineOne }}</span>
-              <span>{{ profileLineTwo }}</span>
+              <span v-if="profileLineTwo">{{ profileLineTwo }}</span>
             </p>
           </div>
         </div>

@@ -5,7 +5,10 @@ export default defineConfig({
   plugins: [vue()],
   server: {
     proxy: {
-      // файлы документов отдаёт бэкенд; проксируем, чтобы PDF.js читал их с того же origin
+      "/api": {
+        target: "http://127.0.0.1:8000",
+        changeOrigin: true,
+      },
       "/storage": {
         target: "http://127.0.0.1:8000",
         changeOrigin: true,

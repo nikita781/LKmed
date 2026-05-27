@@ -10,21 +10,29 @@ const route = useRoute();
 const router = useRouter();
 const { logout, role, user } = useAuth();
 
-const menuItems = computed(() => [
-  {
-    key: "documents",
-    label: "Документы",
-    icon: "clipboard",
-  },
-  {
-    key: "reports",
-    label: "Отчеты",
-    icon: "report",
-  },
-]);
+const menuItems = computed(() => {
+  const adminItems =
+    role.value === "admin"
+      ? [
+          { key: "users", label: "Пользователи", icon: "users" },
+          { key: "categories", label: "Категории", icon: "category" },
+        ]
+      : [];
+
+  const reportsItem =
+    role.value === "admin" || role.value === "moderator"
+      ? [{ key: "reports", label: "Отчеты", icon: "report" }]
+      : [];
+
+  return [
+    ...adminItems,
+    { key: "documents", label: "Документы", icon: "clipboard" },
+    ...reportsItem,
+  ];
+});
 const activeMenuKey = computed(() => route.meta.section ?? "documents");
 const documentsRouteName = computed(() =>
-  role.value === "moderator" ? "moderatorDocuments" : "cabinet",
+  role.value === "doctor" ? "cabinet" : "moderatorDocuments",
 );
 
 async function handleLogout() {
@@ -35,10 +43,16 @@ async function handleLogout() {
 }
 
 function handleMenuSelect(item) {
-  if (item?.key === "documents") {
-    router.push({
-      name: documentsRouteName.value,
-    });
+  const routeByKey = {
+    documents: documentsRouteName.value,
+    reports: "reports",
+    users: "adminUsers",
+    categories: "adminCategories",
+  };
+  const target = routeByKey[item?.key];
+
+  if (target) {
+    router.push({ name: target });
   }
 }
 </script>
@@ -48,7 +62,7 @@ function handleMenuSelect(item) {
     <AppHeader
       variant="dashboard"
       :logo-src="udmurtiaEmblemSrc"
-      :user-name="user?.fullName || 'Фамилия Имя Отчество'"
+      :user-name="user?.fullName || ''"
       :notifications-count="3"
       @logout="handleLogout"
     />

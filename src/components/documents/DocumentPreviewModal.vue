@@ -214,6 +214,11 @@ async function loadDocument() {
 
     if (token === renderToken) {
       updateReadProgress();
+      requestAnimationFrame(() => {
+        if (token === renderToken) {
+          updateReadProgress();
+        }
+      });
     }
   } catch {
     if (token === renderToken) {
@@ -234,7 +239,10 @@ function updateReadProgress() {
     return;
   }
 
-  if (viewer.scrollTop + viewer.clientHeight >= viewer.scrollHeight - 8) {
+  if (
+    viewer.scrollHeight - viewer.clientHeight <= 8 ||
+    viewer.scrollTop + viewer.clientHeight >= viewer.scrollHeight - 8
+  ) {
     hasReadDocument.value = true;
   }
 
@@ -669,6 +677,7 @@ onBeforeUnmount(() => {
 .document-preview__paper {
   flex: none;
   width: calc(450px * var(--document-page-scale, 1));
+  max-width: 100%;
   overflow: hidden;
   border-radius: 6px;
   background: #ffffff;

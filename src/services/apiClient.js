@@ -150,13 +150,23 @@ export function getUserApiErrorMessage(error, fallbackMessage = DEFAULT_API_ERRO
 }
 
 function logApiError({ errorPayload, messages, method, status, url }) {
-  console.error("[API error]", {
-    method,
-    url,
-    status,
-    messages,
-    payload: errorPayload,
-  });
+  if (status === 401 || status === 403) {
+    return;
+  }
+
+  const summary = `${method} ${url} → ${status}`;
+
+  if (messages.length) {
+    console.warn(`[API] ${summary}: ${messages.join(" | ")}`);
+    return;
+  }
+
+  if (errorPayload) {
+    console.warn(`[API] ${summary}`, errorPayload);
+    return;
+  }
+
+  console.warn(`[API] ${summary}`);
 }
 
 export async function apiClient(path, options = {}) {

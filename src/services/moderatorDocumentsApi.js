@@ -233,6 +233,7 @@ export async function getDocumentFiles({ search = "" } = {}) {
   return listFromResponse(response).map((documentItem) => ({
     id: documentItem.id?.toString() ?? "",
     label: documentItem.title ?? documentItem.name ?? "Документ",
+    filePath: documentItem.file_path ?? documentItem.document_file_path ?? "",
   }));
 }
 

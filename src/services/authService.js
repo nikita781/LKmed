@@ -1,7 +1,8 @@
 import { apiClient } from "./apiClient";
 
 const TOKEN_FIELDS = ["token", "access_token", "accessToken"];
-const MODERATOR_ROLE_IDS = new Set([1, 2, "1", "2"]);
+const ADMIN_ROLE_IDS = new Set([1, "1"]);
+const MODERATOR_ROLE_IDS = new Set([2, "2"]);
 const DOCTOR_ROLE_IDS = new Set([3, "3"]);
 
 function getPayloadData(payload) {
@@ -29,8 +30,14 @@ function resolveAppRole(user, login) {
 
   if (
     roleTitle.includes("администратор") ||
-    roleTitle.includes("менеджер") ||
     roleTitle.includes("admin") ||
+    ADMIN_ROLE_IDS.has(roleId)
+  ) {
+    return "admin";
+  }
+
+  if (
+    roleTitle.includes("менеджер") ||
     roleTitle.includes("manager") ||
     roleTitle.includes("moderator") ||
     MODERATOR_ROLE_IDS.has(roleId)
@@ -43,7 +50,7 @@ function resolveAppRole(user, login) {
   }
 
   if (normalizedLogin === "admin" || normalizedLogin.startsWith("adm")) {
-    return "moderator";
+    return "admin";
   }
 
   return "doctor";
@@ -62,6 +69,34 @@ function normalizeUser(apiUser, login) {
     roleId: user.role_id ?? user.roleId ?? null,
     roleTitle: getRoleTitle(user),
   };
+}
+
+async function probeAccessibleRole(accessToken) {
+  const authHeader = { Authorization: `Bearer ${accessToken}` };
+
+  try {
+    await apiClient("/admin/roles", { skipAuth: true, headers: authHeader });
+    return "admin";
+  } catch (error) {
+    if (error?.status !== 401 && error?.status !== 403) {
+      throw error;
+    }
+  }
+
+  try {
+    await apiClient("/manager/documents", {
+      skipAuth: true,
+      headers: authHeader,
+      query: { page: 1 },
+    });
+    return "moderator";
+  } catch (error) {
+    if (error?.status !== 401 && error?.status !== 403) {
+      throw error;
+    }
+  }
+
+  return "doctor";
 }
 
 export async function loginWithCredentials(credentials) {
@@ -92,11 +127,13 @@ export async function loginWithCredentials(credentials) {
       Authorization: `Bearer ${accessToken}`,
     },
   });
+  const probedRole = await probeAccessibleRole(accessToken);
+  const normalizedUser = normalizeUser(currentUser, login);
 
   return {
     accessToken,
     tokenType: "Bearer",
-    user: normalizeUser(currentUser, login),
+    user: { ...normalizedUser, role: probedRole },
   };
 }
 

@@ -135,24 +135,36 @@
               </span>
             </label>
 
-            <label v-if="isBaseMode" class="create-document-modal__field">
-              <span class="create-document-modal__label">Выберите документ</span>
-              <span
-                class="create-document-modal__select-wrap"
-                :class="{ 'create-document-modal__select-wrap--error': shouldShowBaseError }"
+            <div v-if="isBaseMode" class="create-document-modal__field">
+              <label class="create-document-modal__field-label">
+                <span class="create-document-modal__label">Выберите документ</span>
+                <span
+                  class="create-document-modal__select-wrap"
+                  :class="{ 'create-document-modal__select-wrap--error': shouldShowBaseError }"
+                >
+                  <select v-model="form.baseDocumentId" class="create-document-modal__select">
+                    <option
+                      v-for="document in baseDocumentOptions"
+                      :key="document.id"
+                      :value="document.id"
+                    >
+                      {{ document.label }}
+                    </option>
+                  </select>
+                  <UiKitIcon name="chevron-down" :size="20" />
+                </span>
+              </label>
+              <a
+                v-if="selectedBaseDocumentUrl"
+                class="create-document-modal__base-link"
+                :href="selectedBaseDocumentUrl"
+                target="_blank"
+                rel="noopener noreferrer"
               >
-                <select v-model="form.baseDocumentId" class="create-document-modal__select">
-                  <option
-                    v-for="document in baseDocumentOptions"
-                    :key="document.id"
-                    :value="document.id"
-                  >
-                    {{ document.label }}
-                  </option>
-                </select>
-                <UiKitIcon name="chevron-down" :size="20" />
-              </span>
-            </label>
+                <UiKitIcon name="eye" :size="20" />
+                <span>Открыть в новой вкладке</span>
+              </a>
+            </div>
 
             <div v-else class="create-document-modal__field">
               <span class="create-document-modal__label">Файл документа</span>
@@ -262,9 +274,9 @@ const fallbackGroupOptions = [
 ];
 
 const fallbackBaseDocumentOptions = [
-  { id: "health-order", label: "Приказ Минздрава РФ" },
-  { id: "clinic-regulation", label: "Регламент клиники" },
-  { id: "sanitary-rules", label: "Санитарные правила" },
+  { id: "health-order", label: "Приказ Минздрава РФ", filePath: "" },
+  { id: "clinic-regulation", label: "Регламент клиники", filePath: "" },
+  { id: "sanitary-rules", label: "Санитарные правила", filePath: "" },
 ];
 
 const documentMode = ref("upload");
@@ -325,6 +337,8 @@ const selectedBaseDocument = computed(
     baseDocumentOptions.value.find((document) => document.id === form.baseDocumentId) ??
     baseDocumentOptions.value[0],
 );
+
+const selectedBaseDocumentUrl = computed(() => selectedBaseDocument.value?.filePath || "");
 
 const shouldShowTitleError = computed(() => validationAttempted.value && !form.title.trim());
 const shouldShowDateError = computed(() => validationAttempted.value && !form.readUntil.trim());
@@ -459,6 +473,7 @@ function getCurrentDocumentOption() {
       props.document.baseDocumentId ||
       `current-document-${normalizeOptionText(props.document.fileName)}`,
     label: props.document.fileName,
+    filePath: props.document.filePath ?? "",
   };
 }
 
@@ -681,6 +696,30 @@ body.create-document-modal-open {
 
 .create-document-modal__field--relative {
   position: relative;
+}
+
+.create-document-modal__field-label {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.create-document-modal__base-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding-left: 5px;
+  color: var(--color-primary);
+  font-family: var(--font-family-base);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 20px;
+  letter-spacing: 0.26px;
+  text-decoration: none;
+}
+
+.create-document-modal__base-link:hover {
+  text-decoration: underline;
 }
 
 .create-document-modal__label {

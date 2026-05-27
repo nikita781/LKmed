@@ -1,12 +1,23 @@
 import { createRouter, createWebHistory } from "vue-router";
 import { useAuth } from "../composables/useAuth";
+import AdminCategoriesView from "../views/AdminCategoriesView.vue";
+import AdminUsersView from "../views/AdminUsersView.vue";
 import CabinetHomeView from "../views/CabinetHomeView.vue";
 import LoginView from "../views/LoginView.vue";
 import ModeratorDocumentRecipientsView from "../views/ModeratorDocumentRecipientsView.vue";
 import ModeratorDocumentsView from "../views/ModeratorDocumentsView.vue";
+import ReportsView from "../views/ReportsView.vue";
 
 function getDefaultRouteForRole(role) {
-  return role === "moderator" ? "moderatorDocuments" : "cabinet";
+  if (role === "admin") {
+    return "adminUsers";
+  }
+
+  if (role === "moderator") {
+    return "moderatorDocuments";
+  }
+
+  return "cabinet";
 }
 
 const routes = [
@@ -44,7 +55,7 @@ const routes = [
     component: ModeratorDocumentsView,
     meta: {
       requiresAuth: true,
-      roles: ["moderator"],
+      roles: ["moderator", "admin"],
       section: "documents",
     },
   },
@@ -54,8 +65,38 @@ const routes = [
     component: ModeratorDocumentRecipientsView,
     meta: {
       requiresAuth: true,
-      roles: ["moderator"],
+      roles: ["moderator", "admin"],
       section: "documents",
+    },
+  },
+  {
+    path: "/reports",
+    name: "reports",
+    component: ReportsView,
+    meta: {
+      requiresAuth: true,
+      roles: ["moderator", "admin"],
+      section: "reports",
+    },
+  },
+  {
+    path: "/admin/users",
+    name: "adminUsers",
+    component: AdminUsersView,
+    meta: {
+      requiresAuth: true,
+      roles: ["admin"],
+      section: "users",
+    },
+  },
+  {
+    path: "/admin/categories",
+    name: "adminCategories",
+    component: AdminCategoriesView,
+    meta: {
+      requiresAuth: true,
+      roles: ["admin"],
+      section: "categories",
     },
   },
   {
