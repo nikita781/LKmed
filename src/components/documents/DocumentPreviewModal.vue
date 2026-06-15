@@ -56,9 +56,18 @@ const documentDetails = computed(() => ({
   statusVariant: props.document?.statusVariant || "new",
 }));
 
-const documentSource = computed(() =>
-  (props.document?.filePath || "").replace(/^https?:\/\/[^/]+/i, ""),
-);
+const documentSource = computed(() => {
+  const filePath = props.document?.filePath || "";
+
+  if (!filePath || /^https?:\/\//i.test(filePath)) {
+    return filePath;
+  }
+
+  const apiBase = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/api\/?$/i, "").replace(/\/$/, "");
+  const normalizedPath = filePath.startsWith("/") ? filePath : `/${filePath}`;
+
+  return `${apiBase}${normalizedPath}`;
+});
 
 const fileExtension = computed(() => {
   const source = (props.document?.fileName || props.document?.filePath || "").split(/[?#]/)[0];

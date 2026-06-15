@@ -33,6 +33,8 @@ defineProps({
   height: 100%;
   object-fit: cover;
   object-position: center top;
+  position: relative;
+  top: -120px;
 }
 
 @media (max-width: 1199px) {
@@ -52,6 +54,7 @@ defineProps({
 
   .illustration-panel__image {
     object-position: center 32%;
+    top: 0;
   }
 }
 

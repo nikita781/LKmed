@@ -45,7 +45,7 @@ import AuthIllustration from "../components/AuthIllustration.vue";
   justify-content: center;
   align-items: flex-start;
   min-width: 0;
-  padding: 253px 32px 32px;
+  padding: 96px 32px 32px;
   background: var(--color-bg);
 }
 
@@ -55,7 +55,7 @@ import AuthIllustration from "../components/AuthIllustration.vue";
   }
 
   .auth-layout__panel {
-    padding: 253px 24px 32px;
+    padding: 96px 24px 32px;
   }
 }
 
