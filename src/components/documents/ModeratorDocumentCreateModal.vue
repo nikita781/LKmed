@@ -623,6 +623,7 @@ function submitForm() {
     categoryId: props.categories.length ? form.category : "",
     groups: selectedGroupItems.value.map((group) => group.label),
     targetGroups: selectedGroupItems.value.map((group) => group.label),
+    allGroups: allGroupsSelected.value,
     readUntil: form.readUntil.trim(),
     baseDocumentId: form.baseDocumentId,
     file: selectedFile.value,

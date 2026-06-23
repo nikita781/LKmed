@@ -190,9 +190,18 @@ function appendDocumentFormData(formData, documentData) {
     formData.append("category_id", documentData.categoryId);
   }
 
-  (documentData.targetGroups ?? []).forEach((group) => {
-    formData.append("target_groups[]", group);
-  });
+  const allTargetGroups = Boolean(documentData.allGroups);
+
+  // Laravel boolean rule accepts only 1/0/"1"/"0" (not "true"/"false").
+  formData.append("all_target_groups", allTargetGroups ? "1" : "0");
+
+  // Send explicit groups only when not targeting everyone; the backend
+  // ignores target_groups when all_target_groups is true.
+  if (!allTargetGroups) {
+    (documentData.targetGroups ?? []).forEach((group) => {
+      formData.append("target_groups[]", group);
+    });
+  }
 
   if (documentData.mode === "base") {
     formData.append("document_id", documentData.baseDocumentId);
@@ -240,14 +249,51 @@ export async function getDocumentFiles({ search = "" } = {}) {
   }));
 }
 
+// TEMP/костыль: /lists/users пагинируется (15 на страницу), а селектам нужен
+// весь список. Пока на бэкенде нет ручки "вернуть всех", собираем все страницы
+// пагинации на фронте. last_page приходит из первой страницы — лишних запросов нет.
+const USERS_MAX_PAGES = 200;
+
 export async function getUsers({ search = "" } = {}) {
-  const response = await apiClient("/lists/users", {
+  const firstPage = await apiClient("/lists/users", {
     query: {
       search,
+      page: 1,
     },
   });
 
-  return listFromResponse(response).map(normalizeUser);
+  const users = listFromResponse(firstPage).map(normalizeUser);
+  const lastPage = Math.min(
+    Number(firstPage?.last_page ?? firstPage?.meta?.last_page ?? 1) || 1,
+    USERS_MAX_PAGES,
+  );
+
+  if (lastPage <= 1) {
+    return users;
+  }
+
+  const remainingPages = [];
+
+  for (let page = 2; page <= lastPage; page += 1) {
+    remainingPages.push(page);
+  }
+
+  const responses = await Promise.all(
+    remainingPages.map((page) =>
+      apiClient("/lists/users", {
+        query: {
+          search,
+          page,
+        },
+      }),
+    ),
+  );
+
+  responses.forEach((response) => {
+    users.push(...listFromResponse(response).map(normalizeUser));
+  });
+
+  return users;
 }
 
 export async function getUsersPosts() {
