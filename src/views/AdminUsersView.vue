@@ -6,6 +6,7 @@ import ResetPasswordModal from "../components/admin/ResetPasswordModal.vue";
 import UiKitButton from "../components/ui/UiKitButton.vue";
 import UiKitConfirmDialog from "../components/ui/UiKitConfirmDialog.vue";
 import UiKitIcon from "../components/ui/UiKitIcon.vue";
+import UiKitSearchInput from "../components/ui/UiKitSearchInput.vue";
 import UiKitSortIndicator from "../components/ui/UiKitSortIndicator.vue";
 import { useTableSort } from "../composables/useTableSort";
 import AppLayout from "../layouts/AppLayout.vue";
@@ -323,14 +324,7 @@ async function handleConfirmDelete() {
         </div>
 
         <div class="users-screen__search">
-          <input
-            v-model="searchQuery"
-            class="users-screen__search-input"
-            type="text"
-            placeholder="Поиск по ФИО или табельному"
-            autocomplete="off"
-          />
-          <UiKitIcon class="users-screen__search-icon" name="search" :size="24" />
+          <UiKitSearchInput v-model="searchQuery" placeholder="Поиск по ФИО или табельному" />
         </div>
 
         <UiKitButton class="users-screen__import" icon="upload" @click="openImport">
@@ -558,6 +552,12 @@ async function handleConfirmDelete() {
   appearance: none;
   -webkit-appearance: none;
   cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+
+.users-screen__select:hover,
+.users-screen__select:focus {
+  border-color: var(--color-primary);
 }
 
 .users-screen__search-input {
@@ -654,6 +654,11 @@ button.users-screen__head-cell--sortable {
   appearance: none;
   -webkit-appearance: none;
   cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+button.users-screen__head-cell--sortable:hover {
+  color: var(--color-primary);
 }
 
 .users-screen__head-cell--actions {
@@ -701,9 +706,17 @@ button.users-screen__head-cell--sortable {
   height: 28px;
   padding: 0;
   border: 0;
+  border-radius: 50%;
   background: transparent;
   color: var(--color-primary);
   cursor: pointer;
+  transition: background-color 0.15s ease, box-shadow 0.15s ease, color 0.15s ease;
+}
+
+.users-screen__action:hover {
+  color: var(--color-primary-200);
+  background: var(--color-secondary);
+  box-shadow: 0 0 0 4px var(--color-secondary);
 }
 
 .users-screen__empty {
@@ -747,6 +760,12 @@ button.users-screen__head-cell--sortable {
   line-height: 20px;
   letter-spacing: 0.32px;
   cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.users-screen__page:not(.users-screen__page--active):not(:disabled):hover {
+  background: var(--color-secondary);
+  color: var(--color-primary-200);
 }
 
 .users-screen__page--active {

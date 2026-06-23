@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onMounted, ref, watch } from "vue";
 import UiKitIcon from "../components/ui/UiKitIcon.vue";
+import UiKitSearchInput from "../components/ui/UiKitSearchInput.vue";
 import UiKitTag from "../components/ui/UiKitTag.vue";
 import DocumentPreviewModal from "../components/documents/DocumentPreviewModal.vue";
 import AppLayout from "../layouts/AppLayout.vue";
@@ -313,14 +314,7 @@ watch(isDocumentModalOpen, (isOpen) => {
         </div>
 
         <div class="documents-screen__search">
-          <input
-            v-model="searchQuery"
-            class="documents-screen__search-input"
-            type="text"
-            placeholder="Поиск по документам"
-            autocomplete="off"
-          />
-          <UiKitIcon class="documents-screen__search-icon" name="search" :size="24" />
+          <UiKitSearchInput v-model="searchQuery" placeholder="Поиск по документам" />
         </div>
       </div>
 
@@ -408,16 +402,6 @@ watch(isDocumentModalOpen, (isOpen) => {
                   @click="previewDocument(documentItem.id)"
                 >
                   <UiKitIcon name="eye" :size="24" />
-                </button>
-
-                <button
-                  class="documents-screen__action documents-screen__action--inert"
-                  type="button"
-                  aria-label="Удалить документ"
-                  tabindex="-1"
-                  disabled
-                >
-                  <UiKitIcon name="trash" :size="24" />
                 </button>
               </div>
             </div>
@@ -539,6 +523,12 @@ watch(isDocumentModalOpen, (isOpen) => {
   appearance: none;
   -webkit-appearance: none;
   cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+
+.documents-screen__select:hover,
+.documents-screen__select:focus {
+  border-color: var(--color-primary);
 }
 
 .documents-screen__search-input {
@@ -593,7 +583,12 @@ watch(isDocumentModalOpen, (isOpen) => {
 
 .documents-screen__head {
   display: grid;
-  grid-template-columns: 305px 209px 209px 100px 190px;
+  grid-template-columns:
+    minmax(200px, 1.5fr)
+    minmax(150px, 0.9fr)
+    minmax(150px, 1fr)
+    minmax(90px, 0.45fr)
+    minmax(100px, 0.5fr);
   gap: 16px;
   align-items: center;
   padding: 16px;
@@ -627,6 +622,11 @@ button.documents-screen__head-cell--sortable {
   appearance: none;
   -webkit-appearance: none;
   cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+button.documents-screen__head-cell--sortable:hover {
+  color: var(--color-primary);
 }
 
 .documents-screen__head-cell--status,
@@ -636,7 +636,12 @@ button.documents-screen__head-cell--sortable {
 
 .documents-screen__row {
   display: grid;
-  grid-template-columns: 305px 209px 209px 100px 190px;
+  grid-template-columns:
+    minmax(200px, 1.5fr)
+    minmax(150px, 0.9fr)
+    minmax(150px, 1fr)
+    minmax(90px, 0.45fr)
+    minmax(100px, 0.5fr);
   gap: 16px;
   align-items: center;
   padding: 16px;
@@ -688,9 +693,17 @@ button.documents-screen__head-cell--sortable {
   height: 24px;
   padding: 0;
   border: 0;
+  border-radius: 50%;
   background: transparent;
   color: var(--color-primary);
   cursor: pointer;
+  transition: background-color 0.15s ease, box-shadow 0.15s ease, color 0.15s ease;
+}
+
+.documents-screen__action:hover {
+  color: var(--color-primary-200);
+  background: var(--color-secondary);
+  box-shadow: 0 0 0 5px var(--color-secondary);
 }
 
 .documents-screen__action--inert {
@@ -738,6 +751,12 @@ button.documents-screen__head-cell--sortable {
   line-height: 20px;
   letter-spacing: 0.32px;
   cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.documents-screen__page:not(.documents-screen__page--active):not(:disabled):hover {
+  background: var(--color-secondary);
+  color: var(--color-primary-200);
 }
 
 .documents-screen__page--active {

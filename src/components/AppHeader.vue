@@ -167,7 +167,16 @@ function handleLogout() {
   border: 0;
   background: transparent;
   color: var(--color-primary);
+  border-radius: 50%;
   cursor: pointer;
+  transition: background-color 0.15s ease, box-shadow 0.15s ease, color 0.15s ease;
+}
+
+.app-header__bell:hover,
+.app-header__logout:hover {
+  color: var(--color-primary-200);
+  background: var(--color-secondary);
+  box-shadow: 0 0 0 6px var(--color-secondary);
 }
 
 .app-header__badge {

@@ -1,9 +1,14 @@
 <script setup>
 import { computed, onBeforeUnmount, reactive, ref, watch } from "vue";
 import { getUserApiErrorMessage } from "../../services/apiClient";
-import { getDocumentFiles, getUsers } from "../../services/moderatorDocumentsApi";
+import {
+  getDocumentFiles,
+  getDocumentStatuses,
+  getUsers,
+} from "../../services/moderatorDocumentsApi";
 import { createReport } from "../../services/reportsApi";
 import UiKitIcon from "../ui/UiKitIcon.vue";
+import UiKitSearchSelect from "../ui/UiKitSearchSelect.vue";
 
 const props = defineProps({
   modelValue: {
@@ -21,8 +26,9 @@ const formatOptions = [
 const yearOptions = buildYearOptions();
 const departmentOptions = [{ id: "all", label: "Все подразделения" }];
 
-const employeeOptions = ref([]);
-const documentOptions = ref([]);
+const employeeLabel = ref("");
+const documentLabel = ref("");
+const statusOptions = ref([]);
 
 const form = reactive({
   title: "",
@@ -30,23 +36,57 @@ const form = reactive({
   employee: "",
   year: yearOptions[0].id,
   document: "",
+  status: "",
   department: departmentOptions[0].id,
 });
+
+async function loadStatuses() {
+  try {
+    statusOptions.value = await getDocumentStatuses();
+
+    if (!form.status) {
+      form.status = statusOptions.value[0]?.id ?? "";
+    }
+  } catch {
+    statusOptions.value = [];
+  }
+}
+
+function fetchEmployees(search) {
+  return getUsers({ search }).then((users) =>
+    users.map((user) => ({ id: user.id, label: user.fullName })),
+  );
+}
+
+function fetchDocuments(search) {
+  return getDocumentFiles({ search }).then((docs) =>
+    docs.map((doc) => ({ id: doc.id, label: doc.label })),
+  );
+}
+
 const validationAttempted = ref(false);
 const formError = ref("");
-const isLoadingOptions = ref(false);
 const isSubmitting = ref(false);
 
 const isEmployeeFormat = computed(() => form.format === "employee");
 const shouldShowTitleError = computed(() => validationAttempted.value && !form.title.trim());
-const isSubmitDisabled = computed(() => isSubmitting.value || isLoadingOptions.value);
+const shouldShowEmployeeError = computed(
+  () => validationAttempted.value && isEmployeeFormat.value && !form.employee,
+);
+const shouldShowDocumentError = computed(
+  () => validationAttempted.value && !isEmployeeFormat.value && !form.document,
+);
+const shouldShowStatusError = computed(
+  () => validationAttempted.value && !isEmployeeFormat.value && !form.status,
+);
+const isSubmitDisabled = computed(() => isSubmitting.value);
 
 watch(
   () => props.modelValue,
   (isOpen) => {
     if (isOpen) {
       resetForm();
-      loadOptions();
+      loadStatuses();
       document.body.classList.add("report-create-modal-open");
       return;
     }
@@ -76,38 +116,11 @@ function resetForm() {
   form.format = "employee";
   form.year = yearOptions[0].id;
   form.department = departmentOptions[0].id;
-  form.employee = employeeOptions.value[0]?.id ?? "";
-  form.document = documentOptions.value[0]?.id ?? "";
-}
-
-async function loadOptions() {
-  isLoadingOptions.value = true;
-  formError.value = "";
-
-  try {
-    const [users, docs] = await Promise.all([getUsers(), getDocumentFiles()]);
-
-    employeeOptions.value = users.map((user) => ({
-      id: user.id,
-      label: user.fullName,
-    }));
-    documentOptions.value = docs.map((doc) => ({
-      id: doc.id,
-      label: doc.title || doc.label || doc.fileName || "Документ",
-    }));
-
-    if (!form.employee) {
-      form.employee = employeeOptions.value[0]?.id ?? "";
-    }
-
-    if (!form.document) {
-      form.document = documentOptions.value[0]?.id ?? "";
-    }
-  } catch (error) {
-    formError.value = getUserApiErrorMessage(error, "Не удалось загрузить справочники");
-  } finally {
-    isLoadingOptions.value = false;
-  }
+  form.employee = "";
+  employeeLabel.value = "";
+  form.document = "";
+  documentLabel.value = "";
+  form.status = statusOptions.value[0]?.id ?? "";
 }
 
 function closeModal() {
@@ -137,6 +150,11 @@ async function submitForm() {
     return;
   }
 
+  if (!isEmployeeFormat.value && !form.status) {
+    formError.value = "Выберите статус.";
+    return;
+  }
+
   isSubmitting.value = true;
 
   try {
@@ -146,6 +164,7 @@ async function submitForm() {
       userId: isEmployeeFormat.value ? form.employee : null,
       year: isEmployeeFormat.value ? form.year : null,
       documentId: isEmployeeFormat.value ? null : form.document,
+      statusId: isEmployeeFormat.value ? null : form.status,
       department: isEmployeeFormat.value ? null : form.department,
     });
 
@@ -218,28 +237,18 @@ async function submitForm() {
             </div>
 
             <template v-if="isEmployeeFormat">
-              <label class="report-create-modal__field">
+              <div class="report-create-modal__field">
                 <span class="report-create-modal__label">Выберите сотрудника</span>
-                <span class="report-create-modal__select-wrap">
-                  <select
-                    v-model="form.employee"
-                    class="report-create-modal__select"
-                    :disabled="isLoadingOptions"
-                  >
-                    <option v-if="!employeeOptions.length" value="">
-                      {{ isLoadingOptions ? "Загрузка..." : "Нет сотрудников" }}
-                    </option>
-                    <option
-                      v-for="option in employeeOptions"
-                      :key="option.id"
-                      :value="option.id"
-                    >
-                      {{ option.label }}
-                    </option>
-                  </select>
-                  <UiKitIcon name="chevron-down" :size="20" />
-                </span>
-              </label>
+                <UiKitSearchSelect
+                  v-model="form.employee"
+                  v-model:selected-label="employeeLabel"
+                  :fetcher="fetchEmployees"
+                  :has-error="shouldShowEmployeeError"
+                  placeholder="Выберите сотрудника"
+                  search-placeholder="Поиск сотрудника"
+                  empty-text="Сотрудники не найдены"
+                />
+              </div>
 
               <label class="report-create-modal__field">
                 <span class="report-create-modal__label">Выберите год</span>
@@ -255,22 +264,28 @@ async function submitForm() {
             </template>
 
             <template v-else>
-              <label class="report-create-modal__field">
+              <div class="report-create-modal__field">
                 <span class="report-create-modal__label">Выберите документ</span>
+                <UiKitSearchSelect
+                  v-model="form.document"
+                  v-model:selected-label="documentLabel"
+                  :fetcher="fetchDocuments"
+                  :has-error="shouldShowDocumentError"
+                  placeholder="Выберите документ"
+                  search-placeholder="Поиск документа"
+                  empty-text="Документы не найдены"
+                />
+              </div>
+
+              <label class="report-create-modal__field">
+                <span class="report-create-modal__label">Выберите статус</span>
                 <span class="report-create-modal__select-wrap">
                   <select
-                    v-model="form.document"
+                    v-model="form.status"
                     class="report-create-modal__select"
-                    :disabled="isLoadingOptions"
+                    :class="{ 'report-create-modal__select--error': shouldShowStatusError }"
                   >
-                    <option v-if="!documentOptions.length" value="">
-                      {{ isLoadingOptions ? "Загрузка..." : "Нет документов" }}
-                    </option>
-                    <option
-                      v-for="option in documentOptions"
-                      :key="option.id"
-                      :value="option.id"
-                    >
+                    <option v-for="option in statusOptions" :key="option.id" :value="option.id">
                       {{ option.label }}
                     </option>
                   </select>
@@ -383,6 +398,11 @@ body.report-create-modal-open {
   background: #d8eaf6;
   color: #0067ff;
   cursor: pointer;
+  transition: filter 0.15s ease;
+}
+
+.report-create-modal__close:hover {
+  filter: brightness(0.93);
 }
 
 .report-create-modal__close:disabled {
@@ -439,13 +459,20 @@ body.report-create-modal-open {
   line-height: 20px;
   letter-spacing: 0.28px;
   outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.report-create-modal__input:focus,
+.report-create-modal__select:focus {
+  border-color: var(--color-primary);
 }
 
 .report-create-modal__input::placeholder {
   color: #626977;
 }
 
-.report-create-modal__input--error {
+.report-create-modal__input--error,
+.report-create-modal__select--error {
   border-color: #bc5555;
 }
 
@@ -467,6 +494,11 @@ body.report-create-modal-open {
   appearance: none;
   -webkit-appearance: none;
   cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+
+.report-create-modal__select:hover:not(:disabled) {
+  border-color: var(--color-primary);
 }
 
 .report-create-modal__select:disabled {
@@ -515,6 +547,11 @@ body.report-create-modal-open {
   border: 1px solid #767d8a;
   border-radius: 50%;
   background: var(--color-surface);
+  transition: border-color 0.15s ease;
+}
+
+.report-create-modal__radio:hover .report-create-modal__radio-control {
+  border-color: var(--color-primary);
 }
 
 .report-create-modal__radio input:checked + .report-create-modal__radio-control {
@@ -561,10 +598,21 @@ body.report-create-modal-open {
   cursor: pointer;
 }
 
+.report-create-modal__cancel,
+.report-create-modal__submit {
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
 .report-create-modal__cancel {
   border: 1px solid #0067ff;
   background: var(--color-surface);
   color: #0067ff;
+}
+
+.report-create-modal__cancel:hover:not(:disabled) {
+  background: var(--color-secondary);
+  border-color: var(--color-primary-200);
+  color: var(--color-primary-200);
 }
 
 .report-create-modal__submit {
@@ -572,6 +620,10 @@ body.report-create-modal-open {
   border: 0;
   background: #0067ff;
   color: var(--color-surface);
+}
+
+.report-create-modal__submit:hover:not(:disabled) {
+  background: var(--color-primary-200);
 }
 
 .report-create-modal__cancel:disabled,

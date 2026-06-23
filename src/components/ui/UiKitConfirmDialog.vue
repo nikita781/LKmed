@@ -123,10 +123,21 @@ function handleConfirm() {
   cursor: pointer;
 }
 
+.ui-kit-confirm__cancel,
+.ui-kit-confirm__confirm {
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
 .ui-kit-confirm__cancel {
   border: 1px solid #0067ff;
   background: var(--color-surface);
   color: #0067ff;
+}
+
+.ui-kit-confirm__cancel:hover:not(:disabled) {
+  background: var(--color-secondary);
+  border-color: var(--color-primary-200);
+  color: var(--color-primary-200);
 }
 
 .ui-kit-confirm__confirm {
@@ -135,8 +146,16 @@ function handleConfirm() {
   color: var(--color-surface);
 }
 
+.ui-kit-confirm__confirm:hover:not(:disabled) {
+  background: var(--color-primary-200);
+}
+
 .ui-kit-confirm__confirm--danger {
   background: #bc5555;
+}
+
+.ui-kit-confirm__confirm--danger:hover:not(:disabled) {
+  background: #a04646;
 }
 
 .ui-kit-confirm__confirm:disabled,

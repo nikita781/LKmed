@@ -140,6 +140,11 @@ onBeforeUnmount(() => {
   background: var(--color-secondary);
   color: var(--color-primary);
   cursor: pointer;
+  transition: filter 0.15s ease;
+}
+
+.ui-kit-modal__close:hover {
+  filter: brightness(0.93);
 }
 
 .ui-kit-modal__body {

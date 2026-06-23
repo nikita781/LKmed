@@ -206,6 +206,12 @@ async function handleConfirmDelete() {
   line-height: 20px;
   letter-spacing: 0.28px;
   outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.categories-screen__create-input:hover,
+.categories-screen__create-input:focus {
+  border-color: var(--color-primary);
 }
 
 .categories-screen__create-input::placeholder {
@@ -302,9 +308,17 @@ async function handleConfirmDelete() {
   height: 24px;
   padding: 0;
   border: 0;
+  border-radius: 50%;
   background: transparent;
   color: var(--color-primary);
   cursor: pointer;
+  transition: background-color 0.15s ease, box-shadow 0.15s ease, color 0.15s ease;
+}
+
+.categories-screen__action:hover {
+  color: var(--color-primary-200);
+  background: var(--color-secondary);
+  box-shadow: 0 0 0 5px var(--color-secondary);
 }
 
 .categories-screen__empty {

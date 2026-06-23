@@ -53,6 +53,11 @@
   background: #d8eaf6;
   color: #0067ff;
   cursor: pointer;
+  transition: filter 0.15s ease;
+}
+
+.admin-modal__close:hover {
+  filter: brightness(0.93);
 }
 
 .admin-modal__content {
@@ -132,6 +137,12 @@
   line-height: 20px;
   letter-spacing: 0.28px;
   outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.admin-modal__input:focus,
+.admin-modal__select:focus {
+  border-color: var(--color-primary);
 }
 
 .admin-modal__input::placeholder {
@@ -186,6 +197,12 @@
   color: #0067ff;
   cursor: pointer;
   text-align: center;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.admin-modal__upload:hover {
+  border-color: var(--color-primary-200);
+  color: var(--color-primary-200);
 }
 
 .admin-modal__upload--error {
@@ -248,16 +265,31 @@
   cursor: pointer;
 }
 
+.admin-modal__cancel,
+.admin-modal__submit {
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
 .admin-modal__cancel {
   border: 1px solid #0067ff;
   background: var(--color-surface);
   color: #0067ff;
 }
 
+.admin-modal__cancel:hover:not(:disabled) {
+  background: var(--color-secondary);
+  border-color: var(--color-primary-200);
+  color: var(--color-primary-200);
+}
+
 .admin-modal__submit {
   border: 0;
   background: #0067ff;
   color: var(--color-surface);
+}
+
+.admin-modal__submit:hover:not(:disabled) {
+  background: var(--color-primary-200);
 }
 
 .admin-modal__submit:disabled,

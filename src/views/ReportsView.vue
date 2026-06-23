@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from "vue";
 import ReportCreateModal from "../components/reports/ReportCreateModal.vue";
 import UiKitButton from "../components/ui/UiKitButton.vue";
 import UiKitIcon from "../components/ui/UiKitIcon.vue";
+import UiKitSearchInput from "../components/ui/UiKitSearchInput.vue";
 import UiKitSortIndicator from "../components/ui/UiKitSortIndicator.vue";
 import { parseSortableDate, useTableSort } from "../composables/useTableSort";
 import AppLayout from "../layouts/AppLayout.vue";
@@ -186,14 +187,7 @@ async function handleDownload(report) {
 
       <div class="reports-screen__filters">
         <div class="reports-screen__search">
-          <input
-            v-model="searchQuery"
-            class="reports-screen__search-input"
-            type="text"
-            placeholder="Поиск по отчетам"
-            autocomplete="off"
-          />
-          <UiKitIcon class="reports-screen__search-icon" name="search" :size="24" />
+          <UiKitSearchInput v-model="searchQuery" placeholder="Поиск по отчетам" />
         </div>
 
         <UiKitButton class="reports-screen__create" icon="plus" @click="openCreateModal">
@@ -443,6 +437,11 @@ button.reports-screen__head-cell--sortable {
   appearance: none;
   -webkit-appearance: none;
   cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+button.reports-screen__head-cell--sortable:hover {
+  color: var(--color-primary);
 }
 
 .reports-screen__head-cell--actions {
@@ -489,9 +488,17 @@ button.reports-screen__head-cell--sortable {
   height: 24px;
   padding: 0;
   border: 0;
+  border-radius: 50%;
   background: transparent;
   color: var(--color-primary);
   cursor: pointer;
+  transition: background-color 0.15s ease, box-shadow 0.15s ease, color 0.15s ease;
+}
+
+.reports-screen__action:not(:disabled):hover {
+  color: var(--color-primary-200);
+  background: var(--color-secondary);
+  box-shadow: 0 0 0 5px var(--color-secondary);
 }
 
 .reports-screen__action:disabled {
@@ -540,6 +547,12 @@ button.reports-screen__head-cell--sortable {
   line-height: 20px;
   letter-spacing: 0.32px;
   cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.reports-screen__page:not(.reports-screen__page--active):not(:disabled):hover {
+  background: var(--color-secondary);
+  color: var(--color-primary-200);
 }
 
 .reports-screen__page--active {

@@ -120,6 +120,11 @@ const emit = defineEmits(["confirm"]);
   letter-spacing: 0.24px;
   text-transform: uppercase;
   cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.document-acknowledgement__button:hover {
+  background: var(--color-primary-200);
 }
 
 @media (max-width: 767px) {

@@ -1,9 +1,10 @@
 <script setup>
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import ModeratorDocumentCreateModal from "../components/documents/ModeratorDocumentCreateModal.vue";
 import UiKitButton from "../components/ui/UiKitButton.vue";
 import UiKitIcon from "../components/ui/UiKitIcon.vue";
+import UiKitSearchInput from "../components/ui/UiKitSearchInput.vue";
 import UiKitTag from "../components/ui/UiKitTag.vue";
 import { getStatusMeta } from "../data/moderatorDocuments";
 import AppLayout from "../layouts/AppLayout.vue";
@@ -48,7 +49,13 @@ const isCreatingDocument = ref(false);
 const categoryOptions = ref([]);
 const groupOptions = ref([]);
 const baseDocumentOptions = ref([]);
-const responsibleUsers = ref([]);
+const responsibleResults = ref([]);
+const responsibleSearch = ref("");
+const isResponsibleOpen = ref(false);
+const isResponsibleLoading = ref(false);
+const selectedResponsibleLabel = ref("");
+const responsibleRootRef = ref(null);
+const responsibleSearchInput = ref(null);
 
 const fallbackStatusOptions = [
   { value: "all", label: "Все статусы" },
@@ -63,13 +70,19 @@ const statusOptions = computed(() => [
   ...(apiStatusOptions.value.length ? apiStatusOptions.value : fallbackStatusOptions.slice(1)),
 ]);
 
-const responsibleOptions = computed(() => [
+const responsibleListOptions = computed(() => [
   { value: "all", label: "Не выбран" },
-  ...responsibleUsers.value.map((employee) => ({
+  ...responsibleResults.value.map((employee) => ({
     value: employee.id,
     label: employee.fullName,
   })),
 ]);
+
+const responsibleButtonLabel = computed(() =>
+  selectedResponsible.value === "all"
+    ? "Не выбран"
+    : selectedResponsibleLabel.value || "Сотрудник",
+);
 
 const isEmployeeMode = computed(() => selectedResponsible.value !== "all");
 
@@ -161,7 +174,13 @@ const paginationItems = computed(() => {
 watch(
   () => route.query.employee,
   (employeeId) => {
-    selectedResponsible.value = employeeId?.toString() ?? "all";
+    const nextResponsible = employeeId?.toString() ?? "all";
+
+    if (nextResponsible !== selectedResponsible.value) {
+      selectedResponsibleLabel.value = "";
+    }
+
+    selectedResponsible.value = nextResponsible;
   },
 );
 
@@ -198,6 +217,12 @@ watch(totalPages, (nextTotalPages) => {
 onMounted(() => {
   loadDictionaries();
   loadDocuments();
+  document.addEventListener("click", handleResponsibleOutside);
+});
+
+onBeforeUnmount(() => {
+  document.removeEventListener("click", handleResponsibleOutside);
+  window.clearTimeout(responsibleSearchTimer);
 });
 
 async function loadDictionaries() {
@@ -226,9 +251,67 @@ async function loadDictionaries() {
   }
 
   if (users.status === "fulfilled") {
-    responsibleUsers.value = users.value;
+    responsibleResults.value = users.value;
   }
 }
+
+let responsibleSearchTimer = null;
+let responsibleRequestId = 0;
+
+async function loadResponsibleUsers() {
+  const requestId = ++responsibleRequestId;
+  isResponsibleLoading.value = true;
+
+  try {
+    const users = await getUsers({ search: responsibleSearch.value.trim() });
+
+    if (requestId === responsibleRequestId) {
+      responsibleResults.value = users;
+    }
+  } catch {
+    if (requestId === responsibleRequestId) {
+      responsibleResults.value = [];
+    }
+  } finally {
+    if (requestId === responsibleRequestId) {
+      isResponsibleLoading.value = false;
+    }
+  }
+}
+
+function toggleResponsible() {
+  isResponsibleOpen.value = !isResponsibleOpen.value;
+
+  if (isResponsibleOpen.value) {
+    if (!responsibleResults.value.length || !responsibleSearch.value) {
+      loadResponsibleUsers();
+    }
+
+    nextTick(() => responsibleSearchInput.value?.focus());
+  }
+}
+
+function selectResponsible(option) {
+  selectedResponsible.value = option.value;
+  selectedResponsibleLabel.value = option.value === "all" ? "" : option.label;
+  isResponsibleOpen.value = false;
+  responsibleSearch.value = "";
+}
+
+function handleResponsibleOutside(event) {
+  if (
+    isResponsibleOpen.value &&
+    responsibleRootRef.value &&
+    !responsibleRootRef.value.contains(event.target)
+  ) {
+    isResponsibleOpen.value = false;
+  }
+}
+
+watch(responsibleSearch, () => {
+  window.clearTimeout(responsibleSearchTimer);
+  responsibleSearchTimer = window.setTimeout(loadResponsibleUsers, 300);
+});
 
 let lastRequestId = 0;
 
@@ -251,6 +334,10 @@ async function loadDocuments() {
 
     documents.value = result.data;
     paginationMeta.value = result.meta;
+
+    if (isEmployeeMode.value && !selectedResponsibleLabel.value) {
+      selectedResponsibleLabel.value = result.data[0]?.employeeName || "";
+    }
   } catch {
     if (requestId !== lastRequestId) {
       return;
@@ -432,24 +519,65 @@ async function deleteDocument(documentId) {
           <UiKitIcon class="moderator-documents__select-icon" name="chevron-down" :size="20" />
         </div>
 
-        <div class="moderator-documents__select-wrap moderator-documents__select-wrap--responsible">
-          <select v-model="selectedResponsible" class="moderator-documents__select">
-            <option v-for="option in responsibleOptions" :key="option.value" :value="option.value">
-              {{ option.label }}
-            </option>
-          </select>
+        <div
+          ref="responsibleRootRef"
+          class="moderator-documents__select-wrap moderator-documents__select-wrap--responsible moderator-documents__combobox"
+        >
+          <button
+            type="button"
+            class="moderator-documents__select moderator-documents__combobox-control"
+            @click="toggleResponsible"
+          >
+            <span class="moderator-documents__combobox-value">{{ responsibleButtonLabel }}</span>
+          </button>
           <UiKitIcon class="moderator-documents__select-icon" name="chevron-down" :size="20" />
+
+          <div v-if="isResponsibleOpen" class="moderator-documents__combobox-menu">
+            <div class="moderator-documents__combobox-search">
+              <input
+                ref="responsibleSearchInput"
+                v-model="responsibleSearch"
+                class="moderator-documents__combobox-input"
+                type="text"
+                placeholder="Поиск сотрудника"
+                autocomplete="off"
+              />
+              <UiKitIcon
+                class="moderator-documents__combobox-search-icon"
+                name="search"
+                :size="20"
+              />
+            </div>
+
+            <ul class="moderator-documents__combobox-list">
+              <li
+                v-for="option in responsibleListOptions"
+                :key="option.value"
+                class="moderator-documents__combobox-option"
+                :class="{
+                  'moderator-documents__combobox-option--active':
+                    option.value === selectedResponsible,
+                }"
+                @click="selectResponsible(option)"
+              >
+                {{ option.label }}
+              </li>
+
+              <li v-if="isResponsibleLoading" class="moderator-documents__combobox-empty">
+                Загрузка…
+              </li>
+              <li
+                v-else-if="!responsibleResults.length && responsibleSearch.trim()"
+                class="moderator-documents__combobox-empty"
+              >
+                Не найдено
+              </li>
+            </ul>
+          </div>
         </div>
 
         <div class="moderator-documents__search">
-          <input
-            v-model="searchQuery"
-            class="moderator-documents__search-input"
-            type="text"
-            placeholder="Поиск по документам"
-            autocomplete="off"
-          />
-          <UiKitIcon class="moderator-documents__search-icon" name="search" :size="24" />
+          <UiKitSearchInput v-model="searchQuery" placeholder="Поиск по документам" />
         </div>
 
         <UiKitButton class="moderator-documents__create" icon="plus" @click="createDocument">
@@ -683,6 +811,12 @@ async function deleteDocument(documentId) {
   appearance: none;
   -webkit-appearance: none;
   cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+
+.moderator-documents__select:hover,
+.moderator-documents__select:focus {
+  border-color: var(--color-primary);
 }
 
 .moderator-documents__search-input {
@@ -710,6 +844,105 @@ async function deleteDocument(documentId) {
 .moderator-documents__search-icon {
   right: 15px;
   color: var(--color-primary);
+}
+
+.moderator-documents__combobox-control {
+  display: flex;
+  align-items: center;
+  text-align: left;
+  cursor: pointer;
+}
+
+.moderator-documents__combobox-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.moderator-documents__combobox-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 20;
+  width: 100%;
+  min-width: 260px;
+  padding: 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-surface);
+  box-shadow: 0 12px 30px rgb(10 31 68 / 14%);
+}
+
+.moderator-documents__combobox-search {
+  position: relative;
+  margin-bottom: 8px;
+}
+
+.moderator-documents__combobox-input {
+  width: 100%;
+  height: 38px;
+  padding: 8px 40px 8px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text-strong);
+  font-family: var(--font-family-base);
+  font-size: 14px;
+  line-height: 20px;
+  outline: none;
+}
+
+.moderator-documents__combobox-input::placeholder {
+  color: var(--color-text-muted);
+  opacity: 1;
+}
+
+.moderator-documents__combobox-search-icon {
+  position: absolute;
+  top: 50%;
+  right: 12px;
+  color: var(--color-primary);
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.moderator-documents__combobox-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 260px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.moderator-documents__combobox-option {
+  padding: 9px 12px;
+  border-radius: 8px;
+  color: var(--color-text-strong);
+  font-family: var(--font-family-base);
+  font-size: 14px;
+  line-height: 18px;
+  cursor: pointer;
+}
+
+.moderator-documents__combobox-option:hover {
+  background: var(--color-secondary);
+}
+
+.moderator-documents__combobox-option--active {
+  background: var(--color-primary);
+  color: var(--color-surface);
+}
+
+.moderator-documents__combobox-empty {
+  padding: 10px 12px;
+  color: var(--color-text-muted);
+  font-family: var(--font-family-base);
+  font-size: 14px;
+  line-height: 18px;
+  list-style: none;
 }
 
 .moderator-documents__create {
@@ -780,6 +1013,11 @@ button.moderator-documents__head-cell--sortable {
   appearance: none;
   -webkit-appearance: none;
   cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+button.moderator-documents__head-cell--sortable:hover {
+  color: var(--color-primary);
 }
 
 .moderator-documents__head-cell--last {
@@ -854,9 +1092,17 @@ button.moderator-documents__head-cell--sortable {
   height: 24px;
   padding: 0;
   border: 0;
+  border-radius: 50%;
   background: transparent;
   color: var(--color-primary);
   cursor: pointer;
+  transition: background-color 0.15s ease, box-shadow 0.15s ease, color 0.15s ease;
+}
+
+.moderator-documents__action:hover {
+  color: var(--color-primary-200);
+  background: var(--color-secondary);
+  box-shadow: 0 0 0 5px var(--color-secondary);
 }
 
 .moderator-documents__empty {
@@ -900,6 +1146,12 @@ button.moderator-documents__head-cell--sortable {
   line-height: 20px;
   letter-spacing: 0.32px;
   cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.moderator-documents__page:not(.moderator-documents__page--active):not(:disabled):hover {
+  background: var(--color-secondary);
+  color: var(--color-primary-200);
 }
 
 .moderator-documents__page--active {

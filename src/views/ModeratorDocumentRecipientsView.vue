@@ -2,6 +2,7 @@
 import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import UiKitIcon from "../components/ui/UiKitIcon.vue";
+import UiKitSearchInput from "../components/ui/UiKitSearchInput.vue";
 import UiKitTag from "../components/ui/UiKitTag.vue";
 import { getStatusMeta } from "../data/moderatorDocuments";
 import AppLayout from "../layouts/AppLayout.vue";
@@ -18,6 +19,7 @@ const router = useRouter();
 const { sortKey, sortDirection, toggleSort, applySort } = useTableSort();
 const currentPage = ref(1);
 const selectedStatus = ref("all");
+const searchQuery = ref("");
 const recipients = ref([]);
 const documentItem = ref({
   id: "",
@@ -114,11 +116,11 @@ const paginationItems = computed(() => {
   ];
 });
 
-watch([documentId, selectedStatus], () => {
+watch([documentId, selectedStatus, searchQuery], () => {
   currentPage.value = 1;
 });
 
-watch([documentId, currentPage], () => {
+watch([documentId, currentPage, searchQuery], () => {
   loadRecipients();
 });
 
@@ -156,6 +158,7 @@ async function loadRecipients() {
   try {
     const result = await getModeratorDocumentUsers(documentId.value, {
       page: currentPage.value,
+      search: searchQuery.value.trim(),
     });
 
     if (requestId !== lastRequestId) {
@@ -219,7 +222,10 @@ function openEmployeeDocuments(employeeId) {
           Документы
         </button>
         <UiKitIcon class="document-recipients__breadcrumb-icon" name="chevron-right" :size="20" />
-        <span class="document-recipients__breadcrumb document-recipients__breadcrumb--active">
+        <span
+          class="document-recipients__breadcrumb document-recipients__breadcrumb--active"
+          :title="documentItem.title"
+        >
           {{ documentItem.title }}
         </span>
       </nav>
@@ -232,6 +238,10 @@ function openEmployeeDocuments(employeeId) {
             </option>
           </select>
           <UiKitIcon class="document-recipients__select-icon" name="chevron-down" :size="20" />
+        </div>
+
+        <div class="document-recipients__search">
+          <UiKitSearchInput v-model="searchQuery" placeholder="Поиск по сотруднику" />
         </div>
       </div>
 
@@ -375,6 +385,7 @@ function openEmployeeDocuments(employeeId) {
 
 .document-recipients__breadcrumb {
   display: inline-flex;
+  flex: none;
   align-items: center;
   padding: 0;
   border: 0;
@@ -389,24 +400,71 @@ function openEmployeeDocuments(employeeId) {
 }
 
 .document-recipients__breadcrumb--active {
+  display: block;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
   color: var(--color-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
   cursor: default;
 }
 
 .document-recipients__breadcrumb-icon {
+  flex: none;
   color: #1c1c1c;
 }
 
 .document-recipients__filters {
   display: flex;
   align-items: center;
+  gap: 20px;
   margin-bottom: 30px;
 }
 
-.document-recipients__select-wrap {
+.document-recipients__select-wrap,
+.document-recipients__search {
   position: relative;
-  width: 180px;
   flex: none;
+}
+
+.document-recipients__select-wrap {
+  width: 180px;
+}
+
+.document-recipients__search {
+  width: 385px;
+}
+
+.document-recipients__search-input {
+  display: block;
+  width: 100%;
+  height: 42px;
+  padding: 10px 47px 10px 15px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text-strong);
+  font-family: var(--font-family-base);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 20px;
+  letter-spacing: 0.28px;
+  outline: none;
+}
+
+.document-recipients__search-input::placeholder {
+  color: var(--color-text-muted);
+  opacity: 1;
+}
+
+.document-recipients__search-icon {
+  position: absolute;
+  top: 50%;
+  right: 15px;
+  color: var(--color-primary);
+  transform: translateY(-50%);
+  pointer-events: none;
 }
 
 .document-recipients__select {
@@ -427,6 +485,12 @@ function openEmployeeDocuments(employeeId) {
   appearance: none;
   -webkit-appearance: none;
   cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+
+.document-recipients__select:hover,
+.document-recipients__select:focus {
+  border-color: var(--color-primary);
 }
 
 .document-recipients__select-icon {
@@ -450,7 +514,11 @@ function openEmployeeDocuments(employeeId) {
 .document-recipients__head,
 .document-recipients__row {
   display: grid;
-  grid-template-columns: 305px 209px 300px 100px;
+  grid-template-columns:
+    minmax(220px, 1.5fr)
+    minmax(150px, 0.9fr)
+    minmax(180px, 1.2fr)
+    minmax(90px, 0.45fr);
   gap: 16px;
   align-items: center;
   padding: 16px;
@@ -487,6 +555,11 @@ button.document-recipients__head-cell--sortable {
   appearance: none;
   -webkit-appearance: none;
   cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+button.document-recipients__head-cell--sortable:hover {
+  color: var(--color-primary);
 }
 
 .document-recipients__head-cell--status {
@@ -586,6 +659,12 @@ button.document-recipients__head-cell--sortable {
   line-height: 20px;
   letter-spacing: 0.32px;
   cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.document-recipients__page:not(.document-recipients__page--active):not(:disabled):hover {
+  background: var(--color-secondary);
+  color: var(--color-primary-200);
 }
 
 .document-recipients__page--active {
@@ -617,10 +696,13 @@ button.document-recipients__head-cell--sortable {
   }
 
   .document-recipients__filters {
+    flex-direction: column;
+    align-items: stretch;
     margin-bottom: 0;
   }
 
-  .document-recipients__select-wrap {
+  .document-recipients__select-wrap,
+  .document-recipients__search {
     width: 100%;
   }
 

@@ -91,6 +91,7 @@ export function normalizeDocument(documentItem) {
       documentItem.user_id?.toString() ??
       documentItem.employeeId ??
       "",
+    employeeName: firstUser?.name ?? "",
     category: documentItem.category?.title ?? documentItem.category ?? "",
     groups: documentItem.target_groups ?? documentItem.groups ?? [],
     readUntil: documentItem.expired_at ?? "",
@@ -139,10 +140,11 @@ export async function getModeratorDocument(documentId) {
   return normalizeDocument(response.data ?? response);
 }
 
-export async function getModeratorDocumentUsers(documentId, { page = 1 } = {}) {
+export async function getModeratorDocumentUsers(documentId, { page = 1, search = "" } = {}) {
   const response = await apiClient(`/manager/documents/${documentId}/users`, {
     query: {
       page,
+      search,
     },
   });
   const documentItem = await getModeratorDocument(documentId);
@@ -209,6 +211,7 @@ export async function getDocumentStatuses() {
   const response = await apiClient("/lists/documents-statuses");
 
   return listFromResponse(response).map((status) => ({
+    id: status.id?.toString() ?? "",
     value: normalizeStatus(status),
     label: status.title ?? status.name ?? status.value ?? "Статус",
   }));
@@ -237,8 +240,12 @@ export async function getDocumentFiles({ search = "" } = {}) {
   }));
 }
 
-export async function getUsers() {
-  const response = await apiClient("/lists/users");
+export async function getUsers({ search = "" } = {}) {
+  const response = await apiClient("/lists/users", {
+    query: {
+      search,
+    },
+  });
 
   return listFromResponse(response).map(normalizeUser);
 }

@@ -73,6 +73,12 @@ function handleSelect(item) {
   color: var(--color-primary);
   text-align: left;
   cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.ui-kit-sidebar-menu__item:hover:not(.ui-kit-sidebar-menu__item--active) {
+  background: var(--color-secondary);
+  color: var(--color-primary-200);
 }
 
 .ui-kit-sidebar-menu__item--active {

@@ -89,24 +89,35 @@ function handleMenuSelect(item) {
 }
 
 .app-layout__body {
-  display: grid;
-  grid-template-columns: 248px minmax(0, 1fr);
+  position: relative;
   width: 100%;
-  max-width: 1440px;
-  margin: 0 auto;
+}
+
+.app-layout__sidebar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 248px;
 }
 
 .app-layout__content {
+  max-width: 1440px;
   min-width: 0;
+  margin-left: max(248px, calc((100% - 1440px) / 2));
+  margin-right: auto;
   padding: 30px 32px;
 }
 
 @media (max-width: 1023px) {
-  .app-layout__body {
-    grid-template-columns: 1fr;
+  .app-layout__sidebar {
+    position: static;
+    width: 100%;
   }
 
   .app-layout__content {
+    max-width: none;
+    margin: 0;
     padding-top: 24px;
   }
 }

@@ -59,6 +59,7 @@ export async function createReport(payload) {
     body.year = payload.year?.toString() ?? "";
   } else {
     body.document_id = payload.documentId;
+    body.status_id = payload.statusId;
     body.department = payload.department ?? "all";
   }
 

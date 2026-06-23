@@ -384,6 +384,11 @@ onBeforeUnmount(() => {
                 <option value="75">75%</option>
                 <option value="100">100%</option>
                 <option value="125">125%</option>
+                <option value="150">150%</option>
+                <option value="175">175%</option>
+                <option value="200">200%</option>
+                <option value="250">250%</option>
+                <option value="300">300%</option>
               </select>
               <UiKitIcon class="document-preview__zoom-icon" name="chevron-down" :size="20" />
             </label>
@@ -535,6 +540,11 @@ onBeforeUnmount(() => {
   background: transparent;
   color: var(--color-text-muted);
   cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.document-preview__thumbnail:hover:not(.document-preview__thumbnail--selected) {
+  background: var(--color-secondary);
 }
 
 .document-preview__thumbnail--selected {
@@ -615,6 +625,11 @@ onBeforeUnmount(() => {
   display: block;
   width: 94px;
   font-family: var(--font-family-base);
+  transition: border-color 0.15s ease;
+}
+
+.document-preview__zoom:hover {
+  border-color: var(--color-primary);
 }
 
 .document-preview__zoom-select {
@@ -657,6 +672,10 @@ onBeforeUnmount(() => {
 .document-preview__pages--zoomed {
   align-items: flex-start;
   padding-left: 20px;
+}
+
+.document-preview__pages--zoomed .document-preview__paper {
+  max-width: none;
 }
 
 .document-preview__pages::-webkit-scrollbar {
@@ -738,7 +757,7 @@ onBeforeUnmount(() => {
 
 .document-preview__detail {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 20px;
   width: 100%;
   color: var(--color-text-muted);
@@ -780,6 +799,11 @@ onBeforeUnmount(() => {
   letter-spacing: 0.24px;
   text-transform: uppercase;
   cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.document-preview__acknowledge:hover:not(:disabled) {
+  background: var(--color-primary-200);
 }
 
 .document-preview__acknowledge:disabled {
@@ -789,8 +813,14 @@ onBeforeUnmount(() => {
 
 @media (max-width: 1060px) {
   .document-preview {
-    grid-template-columns: 1fr;
+    display: flex;
+    flex-direction: column;
     overflow: auto;
+  }
+
+  .document-preview__viewer,
+  .document-preview__details {
+    flex: none;
   }
 
   .document-preview__viewer {

@@ -77,10 +77,17 @@
               <span class="create-document-modal__label">Целевая группа</span>
               <button
                 class="create-document-modal__target-control"
+                :class="{ 'create-document-modal__target-control--error': shouldShowGroupError }"
                 type="button"
                 @click="isGroupMenuOpen = !isGroupMenuOpen"
               >
                 <span class="create-document-modal__chips">
+                  <span
+                    v-if="!selectedGroupItems.length"
+                    class="create-document-modal__target-placeholder"
+                  >
+                    Выберите целевую группу
+                  </span>
                   <span
                     v-for="group in selectedGroupItems"
                     :key="group.id"
@@ -103,17 +110,20 @@
                 <UiKitIcon name="chevron-down" :size="20" />
               </button>
               <div v-if="isGroupMenuOpen" class="create-document-modal__target-menu">
+                <button
+                  type="button"
+                  class="create-document-modal__target-select-all"
+                  @click="toggleSelectAllGroups"
+                >
+                  <UiKitIcon :name="allGroupsSelected ? 'close' : 'check'" :size="18" />
+                  <span>{{ allGroupsSelected ? "Снять выделение" : "Выбрать всех" }}</span>
+                </button>
                 <label
                   v-for="group in groupOptions"
                   :key="group.id"
                   class="create-document-modal__target-option"
                 >
-                  <input
-                    v-model="form.groups"
-                    type="checkbox"
-                    :value="group.id"
-                    :disabled="form.groups.length === 1 && form.groups.includes(group.id)"
-                  />
+                  <input v-model="form.groups" type="checkbox" :value="group.id" />
                   <span>{{ group.label }}</span>
                 </label>
               </div>
@@ -211,6 +221,11 @@
             Готово
           </UiKitButton>
         </form>
+
+        <div v-if="props.isSubmitting" class="create-document-modal__overlay">
+          <span class="create-document-modal__spinner" aria-hidden="true" />
+          <span class="create-document-modal__overlay-text">Загрузка…</span>
+        </div>
       </div>
     </Transition>
   </Teleport>
@@ -290,7 +305,7 @@ const formError = ref("");
 const form = reactive({
   title: "",
   category: "medicine",
-  groups: ["surgeon", "therapist"],
+  groups: [],
   readUntil: "",
   baseDocumentId: "health-order",
 });
@@ -342,6 +357,7 @@ const selectedBaseDocumentUrl = computed(() => selectedBaseDocument.value?.fileP
 
 const shouldShowTitleError = computed(() => validationAttempted.value && !form.title.trim());
 const shouldShowDateError = computed(() => validationAttempted.value && !form.readUntil.trim());
+const shouldShowGroupError = computed(() => validationAttempted.value && !form.groups.length);
 const shouldShowFileError = computed(
   () => validationAttempted.value && !isBaseMode.value && !selectedFile.value,
 );
@@ -410,7 +426,7 @@ function resetForm() {
 
 function getDefaultGroupIds(documentItem) {
   if (!documentItem?.groups?.length) {
-    return groupOptions.value.slice(0, 2).map((group) => group.id);
+    return [];
   }
 
   return documentItem.groups
@@ -517,11 +533,15 @@ function closeModal() {
 }
 
 function removeGroup(groupId) {
-  if (form.groups.length === 1) {
-    return;
-  }
-
   form.groups = form.groups.filter((id) => id !== groupId);
+}
+
+const allGroupsSelected = computed(
+  () => groupOptions.value.length > 0 && form.groups.length === groupOptions.value.length,
+);
+
+function toggleSelectAllGroups() {
+  form.groups = allGroupsSelected.value ? [] : groupOptions.value.map((group) => group.id);
 }
 
 function openFilePicker() {
@@ -676,6 +696,11 @@ body.create-document-modal-open {
   background: #d8eaf6;
   color: #0067ff;
   cursor: pointer;
+  transition: filter 0.15s ease;
+}
+
+.create-document-modal__close:hover {
+  filter: brightness(0.93);
 }
 
 .create-document-modal__content {
@@ -776,6 +801,11 @@ body.create-document-modal-open {
   border: 1px solid #767d8a;
   border-radius: 50%;
   background: var(--color-surface);
+  transition: border-color 0.15s ease;
+}
+
+.create-document-modal__radio:hover .create-document-modal__radio-control {
+  border-color: var(--color-primary);
 }
 
 .create-document-modal__radio input:checked + .create-document-modal__radio-control {
@@ -814,6 +844,14 @@ body.create-document-modal-open {
   line-height: 20px;
   letter-spacing: 0.28px;
   outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.create-document-modal__input:focus,
+.create-document-modal__select:focus,
+.create-document-modal__date-input:focus,
+.create-document-modal__target-control:focus {
+  border-color: var(--color-primary);
 }
 
 .create-document-modal__input {
@@ -846,6 +884,12 @@ body.create-document-modal-open {
 .create-document-modal__select {
   appearance: none;
   padding: 10px 45px 10px 15px;
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+
+.create-document-modal__select:hover {
+  border-color: var(--color-primary);
 }
 
 .create-document-modal__date-input {
@@ -926,6 +970,41 @@ body.create-document-modal-open {
   background: #d8eaf6;
 }
 
+.create-document-modal__target-placeholder {
+  display: inline-flex;
+  align-items: center;
+  min-height: 27px;
+  color: #626977;
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.create-document-modal__target-select-all {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 38px;
+  margin-bottom: 4px;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--color-primary);
+  color: var(--color-surface);
+  font-family: var(--font-family-base);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.28px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.create-document-modal__target-select-all:hover {
+  background: #1f6fd6;
+}
+
 .create-document-modal__upload {
   display: flex;
   min-height: 130px;
@@ -938,6 +1017,12 @@ body.create-document-modal-open {
   color: #0067ff;
   cursor: pointer;
   text-align: center;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.create-document-modal__upload:hover {
+  border-color: var(--color-primary-200);
+  color: var(--color-primary-200);
 }
 
 .create-document-modal__upload-text {
@@ -993,6 +1078,7 @@ body.create-document-modal-open {
 .create-document-modal__input--error,
 .create-document-modal__date-wrap--error .create-document-modal__date-input,
 .create-document-modal__select-wrap--error .create-document-modal__select,
+.create-document-modal__target-control--error,
 .create-document-modal__upload--error {
   border-color: #e63f3f;
 }
@@ -1000,6 +1086,41 @@ body.create-document-modal-open {
 .create-document-modal__submit {
   width: 220px;
   align-self: flex-end;
+}
+
+.create-document-modal__overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  background: rgb(255 255 255 / 70%);
+}
+
+.create-document-modal__spinner {
+  width: 48px;
+  height: 48px;
+  border: 4px solid var(--color-secondary);
+  border-top-color: var(--color-primary);
+  border-radius: 50%;
+  animation: create-document-modal-spin 0.8s linear infinite;
+}
+
+.create-document-modal__overlay-text {
+  color: var(--color-primary);
+  font-family: var(--font-family-base);
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.32px;
+}
+
+@keyframes create-document-modal-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .create-document-modal-fade-enter-active,
