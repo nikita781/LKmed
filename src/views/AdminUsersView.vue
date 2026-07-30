@@ -324,7 +324,11 @@ async function handleConfirmDelete() {
         </div>
 
         <div class="users-screen__search">
-          <UiKitSearchInput v-model="searchQuery" placeholder="Поиск по ФИО или табельному" />
+          <UiKitSearchInput
+            v-model="searchQuery"
+            :loading="isLoading"
+            placeholder="Поиск по ФИО или табельному"
+          />
         </div>
 
         <UiKitButton class="users-screen__import" icon="upload" @click="openImport">

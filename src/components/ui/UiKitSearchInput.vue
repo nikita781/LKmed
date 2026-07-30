@@ -11,6 +11,10 @@ const props = defineProps({
     type: String,
     default: "Поиск",
   },
+  loading: {
+    type: Boolean,
+    default: false,
+  },
 });
 
 const emit = defineEmits(["update:modelValue"]);
@@ -32,11 +36,20 @@ function clear() {
     <input
       ref="inputRef"
       class="ui-kit-search__input"
+      :class="{ 'ui-kit-search__input--busy': loading && modelValue }"
       type="text"
       :value="modelValue"
       :placeholder="placeholder"
       autocomplete="off"
       @input="onInput"
+    />
+
+    <span
+      v-if="loading"
+      class="ui-kit-search__spinner"
+      :class="{ 'ui-kit-search__spinner--shifted': modelValue }"
+      role="status"
+      aria-label="Идёт поиск"
     />
 
     <button
@@ -48,7 +61,7 @@ function clear() {
     >
       <UiKitIcon name="close" :size="20" />
     </button>
-    <UiKitIcon v-else class="ui-kit-search__icon" name="search" :size="24" />
+    <UiKitIcon v-else-if="!loading" class="ui-kit-search__icon" name="search" :size="24" />
   </div>
 </template>
 
@@ -115,5 +128,33 @@ function clear() {
 
 .ui-kit-search__clear:hover {
   color: var(--color-primary-200);
+}
+
+.ui-kit-search__input--busy {
+  padding-right: 75px;
+}
+
+.ui-kit-search__spinner {
+  position: absolute;
+  top: 50%;
+  right: 15px;
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--color-secondary);
+  border-top-color: var(--color-primary);
+  border-radius: 50%;
+  transform: translateY(-50%);
+  animation: ui-kit-search-spin 0.7s linear infinite;
+  pointer-events: none;
+}
+
+.ui-kit-search__spinner--shifted {
+  right: 49px;
+}
+
+@keyframes ui-kit-search-spin {
+  to {
+    transform: translateY(-50%) rotate(360deg);
+  }
 }
 </style>

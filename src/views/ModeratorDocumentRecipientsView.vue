@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import UiKitIcon from "../components/ui/UiKitIcon.vue";
 import UiKitSearchInput from "../components/ui/UiKitSearchInput.vue";
@@ -50,6 +50,17 @@ const statusOptions = computed(() => [
 ]);
 
 const documentId = computed(() => route.params.documentId?.toString() ?? "");
+
+const selectedStatusId = computed(() => {
+  if (selectedStatus.value === "all") {
+    return "";
+  }
+
+  return (
+    apiStatusOptions.value.find((option) => option.value === selectedStatus.value)?.id ?? ""
+  );
+});
+
 const filteredRecipients = computed(() =>
   selectedStatus.value === "all"
     ? recipients.value
@@ -116,12 +127,25 @@ const paginationItems = computed(() => {
   ];
 });
 
-watch([documentId, selectedStatus, searchQuery], () => {
+watch([documentId, selectedStatus], () => {
   currentPage.value = 1;
 });
 
-watch([documentId, currentPage, searchQuery], () => {
+watch([documentId, currentPage, selectedStatus, selectedStatusId], () => {
   loadRecipients();
+});
+
+watch(searchQuery, () => {
+  isLoading.value = true;
+  window.clearTimeout(searchDebounceTimer);
+  searchDebounceTimer = window.setTimeout(() => {
+    if (currentPage.value !== 1) {
+      currentPage.value = 1;
+      return;
+    }
+
+    loadRecipients();
+  }, 300);
 });
 
 watch(totalPages, (nextTotalPages) => {
@@ -135,6 +159,10 @@ onMounted(() => {
   loadRecipients();
 });
 
+onBeforeUnmount(() => {
+  window.clearTimeout(searchDebounceTimer);
+});
+
 async function loadStatuses() {
   try {
     apiStatusOptions.value = await getDocumentStatuses();
@@ -144,6 +172,7 @@ async function loadStatuses() {
 }
 
 let lastRequestId = 0;
+let searchDebounceTimer = null;
 
 async function loadRecipients() {
   if (!documentId.value) {
@@ -152,6 +181,7 @@ async function loadRecipients() {
 
   const requestId = ++lastRequestId;
 
+  window.clearTimeout(searchDebounceTimer);
   isLoading.value = true;
   loadError.value = "";
 
@@ -159,6 +189,7 @@ async function loadRecipients() {
     const result = await getModeratorDocumentUsers(documentId.value, {
       page: currentPage.value,
       search: searchQuery.value.trim(),
+      statusId: selectedStatusId.value,
     });
 
     if (requestId !== lastRequestId) {
@@ -241,7 +272,11 @@ function openEmployeeDocuments(employeeId) {
         </div>
 
         <div class="document-recipients__search">
-          <UiKitSearchInput v-model="searchQuery" placeholder="Поиск по сотруднику" />
+          <UiKitSearchInput
+            v-model="searchQuery"
+            :loading="isLoading"
+            placeholder="Поиск по сотруднику"
+          />
         </div>
       </div>
 

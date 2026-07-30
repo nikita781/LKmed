@@ -314,7 +314,11 @@ watch(isDocumentModalOpen, (isOpen) => {
         </div>
 
         <div class="documents-screen__search">
-          <UiKitSearchInput v-model="searchQuery" placeholder="Поиск по документам" />
+          <UiKitSearchInput
+            v-model="searchQuery"
+            :loading="isLoading"
+            placeholder="Поиск по документам"
+          />
         </div>
       </div>
 

@@ -187,7 +187,11 @@ async function handleDownload(report) {
 
       <div class="reports-screen__filters">
         <div class="reports-screen__search">
-          <UiKitSearchInput v-model="searchQuery" placeholder="Поиск по отчетам" />
+          <UiKitSearchInput
+            v-model="searchQuery"
+            :loading="isLoading"
+            placeholder="Поиск по отчетам"
+          />
         </div>
 
         <UiKitButton class="reports-screen__create" icon="plus" @click="openCreateModal">

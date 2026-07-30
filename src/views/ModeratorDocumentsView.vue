@@ -13,7 +13,6 @@ import {
   deleteModeratorDocument,
   getDocumentCategories,
   getDocumentFiles,
-  getDocumentStatuses,
   getModeratorDocument,
   getModeratorDocuments,
   getUsers,
@@ -28,7 +27,6 @@ const pageSize = 10;
 const route = useRoute();
 const router = useRouter();
 const { sortKey, sortDirection, toggleSort, applySort } = useTableSort();
-const selectedStatus = ref("all");
 const selectedResponsible = ref(route.query.employee?.toString() ?? "all");
 const searchQuery = ref("");
 const currentPage = ref(1);
@@ -53,22 +51,13 @@ const responsibleResults = ref([]);
 const responsibleSearch = ref("");
 const isResponsibleOpen = ref(false);
 const isResponsibleLoading = ref(false);
+const isResponsibleLoadingMore = ref(false);
+const responsiblePage = ref(1);
+const responsibleHasMore = ref(false);
 const selectedResponsibleLabel = ref("");
 const responsibleRootRef = ref(null);
 const responsibleSearchInput = ref(null);
-
-const fallbackStatusOptions = [
-  { value: "all", label: "Все статусы" },
-  { value: "new", label: "Новый" },
-  { value: "success", label: "Принят" },
-  { value: "error", label: "Просрочен" },
-];
-const apiStatusOptions = ref([]);
-
-const statusOptions = computed(() => [
-  fallbackStatusOptions[0],
-  ...(apiStatusOptions.value.length ? apiStatusOptions.value : fallbackStatusOptions.slice(1)),
-]);
+const responsibleListRef = ref(null);
 
 const responsibleListOptions = computed(() => [
   { value: "all", label: "Не выбран" },
@@ -90,15 +79,12 @@ const filteredDocuments = computed(() => {
   const query = searchQuery.value.trim().toLowerCase();
 
   return documents.value.filter((documentItem) => {
-    const matchesStatus =
-      selectedStatus.value === "all" || documentItem.status === selectedStatus.value;
-    const matchesSearch =
+    return (
       !query ||
       [documentItem.title, documentItem.createdAt, documentItem.fileName].some((value) =>
         value.toLowerCase().includes(query),
-      );
-
-    return matchesStatus && matchesSearch;
+      )
+    );
   });
 });
 
@@ -193,12 +179,25 @@ watch(selectedResponsible, (employeeId) => {
   });
 });
 
-watch([selectedStatus, selectedResponsible, searchQuery], () => {
+watch(selectedResponsible, () => {
   currentPage.value = 1;
 });
 
-watch([currentPage, selectedResponsible, searchQuery], () => {
+watch([currentPage, selectedResponsible], () => {
   loadDocuments();
+});
+
+watch(searchQuery, () => {
+  isLoading.value = true;
+  window.clearTimeout(searchDebounceTimer);
+  searchDebounceTimer = window.setTimeout(() => {
+    if (currentPage.value !== 1) {
+      currentPage.value = 1;
+      return;
+    }
+
+    loadDocuments();
+  }, 300);
 });
 
 watch(isCreateModalOpen, (isOpen) => {
@@ -223,20 +222,16 @@ onMounted(() => {
 onBeforeUnmount(() => {
   document.removeEventListener("click", handleResponsibleOutside);
   window.clearTimeout(responsibleSearchTimer);
+  window.clearTimeout(searchDebounceTimer);
 });
 
 async function loadDictionaries() {
-  const [statuses, categories, groups, baseDocuments, users] = await Promise.allSettled([
-    getDocumentStatuses(),
+  const [categories, groups, baseDocuments, users] = await Promise.allSettled([
     getDocumentCategories(),
     getUsersPosts(),
     getDocumentFiles(),
     getUsers(),
   ]);
-
-  if (statuses.status === "fulfilled") {
-    apiStatusOptions.value = statuses.value;
-  }
 
   if (categories.status === "fulfilled") {
     categoryOptions.value = categories.value;
@@ -251,31 +246,79 @@ async function loadDictionaries() {
   }
 
   if (users.status === "fulfilled") {
-    responsibleResults.value = users.value;
+    responsibleResults.value = users.value.items;
+    responsiblePage.value = users.value.page ?? 1;
+    responsibleHasMore.value = users.value.hasMore;
   }
 }
 
 let responsibleSearchTimer = null;
 let responsibleRequestId = 0;
+let searchDebounceTimer = null;
 
-async function loadResponsibleUsers() {
+async function loadResponsibleUsers({ reset } = { reset: true }) {
   const requestId = ++responsibleRequestId;
-  isResponsibleLoading.value = true;
+  const nextPage = reset ? 1 : responsiblePage.value + 1;
+
+  if (reset) {
+    isResponsibleLoading.value = true;
+  } else {
+    isResponsibleLoadingMore.value = true;
+  }
 
   try {
-    const users = await getUsers({ search: responsibleSearch.value.trim() });
+    const result = await getUsers({
+      search: responsibleSearch.value.trim(),
+      page: nextPage,
+    });
 
-    if (requestId === responsibleRequestId) {
-      responsibleResults.value = users;
+    if (requestId !== responsibleRequestId) {
+      return;
+    }
+
+    responsibleResults.value = reset
+      ? result.items
+      : [...responsibleResults.value, ...result.items];
+    responsiblePage.value = nextPage;
+    responsibleHasMore.value = result.hasMore;
+
+    if (reset) {
+      nextTick(() => {
+        if (responsibleListRef.value) {
+          responsibleListRef.value.scrollTop = 0;
+        }
+      });
     }
   } catch {
-    if (requestId === responsibleRequestId) {
+    if (requestId === responsibleRequestId && reset) {
       responsibleResults.value = [];
+      responsibleHasMore.value = false;
     }
   } finally {
     if (requestId === responsibleRequestId) {
       isResponsibleLoading.value = false;
+      isResponsibleLoadingMore.value = false;
     }
+  }
+}
+
+function loadMoreResponsible() {
+  if (
+    !responsibleHasMore.value ||
+    isResponsibleLoading.value ||
+    isResponsibleLoadingMore.value
+  ) {
+    return;
+  }
+
+  loadResponsibleUsers({ reset: false });
+}
+
+function onResponsibleScroll() {
+  const el = responsibleListRef.value;
+
+  if (el && el.scrollHeight - el.scrollTop - el.clientHeight < 48) {
+    loadMoreResponsible();
   }
 }
 
@@ -283,8 +326,8 @@ function toggleResponsible() {
   isResponsibleOpen.value = !isResponsibleOpen.value;
 
   if (isResponsibleOpen.value) {
-    if (!responsibleResults.value.length || !responsibleSearch.value) {
-      loadResponsibleUsers();
+    if (!responsibleResults.value.length || !responsibleSearch.value.trim()) {
+      loadResponsibleUsers({ reset: true });
     }
 
     nextTick(() => responsibleSearchInput.value?.focus());
@@ -309,8 +352,12 @@ function handleResponsibleOutside(event) {
 }
 
 watch(responsibleSearch, () => {
+  if (!isResponsibleOpen.value) {
+    return;
+  }
+
   window.clearTimeout(responsibleSearchTimer);
-  responsibleSearchTimer = window.setTimeout(loadResponsibleUsers, 300);
+  responsibleSearchTimer = window.setTimeout(() => loadResponsibleUsers({ reset: true }), 300);
 });
 
 let lastRequestId = 0;
@@ -318,6 +365,7 @@ let lastRequestId = 0;
 async function loadDocuments() {
   const requestId = ++lastRequestId;
 
+  window.clearTimeout(searchDebounceTimer);
   isLoading.value = true;
   loadError.value = "";
 
@@ -387,14 +435,12 @@ async function handleDocumentCreate(documentData) {
 
   try {
     await createModeratorDocument(documentData);
-    selectedStatus.value = "all";
     searchQuery.value = "";
     currentPage.value = 1;
     await loadDocuments();
     isCreateModalOpen.value = false;
     editingDocument.value = null;
   } catch (error) {
-    selectedStatus.value = "all";
     searchQuery.value = "";
     currentPage.value = 1;
     await loadDocuments();
@@ -510,15 +556,6 @@ async function deleteDocument(documentId) {
       <h1 class="moderator-documents__title">Документы</h1>
 
       <div class="moderator-documents__filters">
-        <div class="moderator-documents__select-wrap moderator-documents__select-wrap--status">
-          <select v-model="selectedStatus" class="moderator-documents__select">
-            <option v-for="option in statusOptions" :key="option.value" :value="option.value">
-              {{ option.label }}
-            </option>
-          </select>
-          <UiKitIcon class="moderator-documents__select-icon" name="chevron-down" :size="20" />
-        </div>
-
         <div
           ref="responsibleRootRef"
           class="moderator-documents__select-wrap moderator-documents__select-wrap--responsible moderator-documents__combobox"
@@ -549,35 +586,57 @@ async function deleteDocument(documentId) {
               />
             </div>
 
-            <ul class="moderator-documents__combobox-list">
+            <ul
+              ref="responsibleListRef"
+              class="moderator-documents__combobox-list"
+              @scroll="onResponsibleScroll"
+            >
               <li
-                v-for="option in responsibleListOptions"
-                :key="option.value"
-                class="moderator-documents__combobox-option"
-                :class="{
-                  'moderator-documents__combobox-option--active':
-                    option.value === selectedResponsible,
-                }"
-                @click="selectResponsible(option)"
+                v-if="isResponsibleLoading"
+                class="moderator-documents__combobox-empty moderator-documents__combobox-loading"
               >
-                {{ option.label }}
-              </li>
-
-              <li v-if="isResponsibleLoading" class="moderator-documents__combobox-empty">
+                <span class="moderator-documents__combobox-spinner" aria-hidden="true" />
                 Загрузка…
               </li>
-              <li
-                v-else-if="!responsibleResults.length && responsibleSearch.trim()"
-                class="moderator-documents__combobox-empty"
-              >
-                Не найдено
-              </li>
+
+              <template v-else>
+                <li
+                  v-for="option in responsibleListOptions"
+                  :key="option.value"
+                  class="moderator-documents__combobox-option"
+                  :class="{
+                    'moderator-documents__combobox-option--active':
+                      option.value === selectedResponsible,
+                  }"
+                  @click="selectResponsible(option)"
+                >
+                  {{ option.label }}
+                </li>
+
+                <li
+                  v-if="isResponsibleLoadingMore"
+                  class="moderator-documents__combobox-empty moderator-documents__combobox-loading"
+                >
+                  <span class="moderator-documents__combobox-spinner" aria-hidden="true" />
+                  Загрузка…
+                </li>
+                <li
+                  v-else-if="!responsibleResults.length && responsibleSearch.trim()"
+                  class="moderator-documents__combobox-empty"
+                >
+                  Не найдено
+                </li>
+              </template>
             </ul>
           </div>
         </div>
 
         <div class="moderator-documents__search">
-          <UiKitSearchInput v-model="searchQuery" placeholder="Поиск по документам" />
+          <UiKitSearchInput
+            v-model="searchQuery"
+            :loading="isLoading"
+            placeholder="Поиск по документам"
+          />
         </div>
 
         <UiKitButton class="moderator-documents__create" icon="plus" @click="createDocument">
@@ -776,10 +835,6 @@ async function deleteDocument(documentId) {
   flex: none;
 }
 
-.moderator-documents__select-wrap--status {
-  width: 180px;
-}
-
 .moderator-documents__select-wrap--responsible {
   width: 253px;
 }
@@ -937,12 +992,35 @@ async function deleteDocument(documentId) {
 }
 
 .moderator-documents__combobox-empty {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   padding: 10px 12px;
   color: var(--color-text-muted);
   font-family: var(--font-family-base);
   font-size: 14px;
   line-height: 18px;
   list-style: none;
+}
+
+.moderator-documents__combobox-loading {
+  justify-content: center;
+}
+
+.moderator-documents__combobox-spinner {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--color-secondary);
+  border-top-color: var(--color-primary);
+  border-radius: 50%;
+  animation: moderator-documents-combobox-spin 0.7s linear infinite;
+}
+
+@keyframes moderator-documents-combobox-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .moderator-documents__create {
@@ -1171,7 +1249,7 @@ button.moderator-documents__head-cell--sortable:hover {
 @media (max-width: 1340px) and (min-width: 768px) {
   .moderator-documents__filters {
     display: grid;
-    grid-template-columns: 180px minmax(220px, 1fr) 220px;
+    grid-template-columns: minmax(220px, 1fr) 220px;
     align-items: center;
   }
 
@@ -1182,7 +1260,7 @@ button.moderator-documents__head-cell--sortable:hover {
   }
 
   .moderator-documents__create {
-    grid-column: 3;
+    grid-column: 2;
     grid-row: 1;
   }
 }

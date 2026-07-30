@@ -40,6 +40,23 @@ export function normalizeStatus(status) {
   return STATUS_LABEL_TO_KEY[normalizedTitle] ?? normalizedTitle ?? "new";
 }
 
+function normalizeTargetGroups(groups) {
+  if (!Array.isArray(groups)) {
+    return [];
+  }
+
+  return groups
+    .map((group) => {
+      if (group && typeof group === "object") {
+        return (group.title ?? group.name ?? group.post ?? group.label ?? "").toString();
+      }
+
+      return group?.toString() ?? "";
+    })
+    .map((group) => group.trim())
+    .filter((group) => group && !EXCLUDED_TARGET_POSTS.has(group));
+}
+
 function formatApiDate(value) {
   if (!value) {
     return "дд.мм.гггг 00:00";
@@ -93,7 +110,7 @@ export function normalizeDocument(documentItem) {
       "",
     employeeName: firstUser?.name ?? "",
     category: documentItem.category?.title ?? documentItem.category ?? "",
-    groups: documentItem.target_groups ?? documentItem.groups ?? [],
+    groups: normalizeTargetGroups(documentItem.target_groups ?? documentItem.groups),
     readUntil: documentItem.expired_at ?? "",
   };
 }
@@ -140,11 +157,15 @@ export async function getModeratorDocument(documentId) {
   return normalizeDocument(response.data ?? response);
 }
 
-export async function getModeratorDocumentUsers(documentId, { page = 1, search = "" } = {}) {
+export async function getModeratorDocumentUsers(
+  documentId,
+  { page = 1, search = "", statusId = "" } = {},
+) {
   const response = await apiClient(`/manager/documents/${documentId}/users`, {
     query: {
       page,
       search,
+      status: statusId,
     },
   });
   const documentItem = await getModeratorDocument(documentId);
@@ -235,65 +256,52 @@ export async function getDocumentCategories() {
   }));
 }
 
-export async function getDocumentFiles({ search = "" } = {}) {
+export async function getDocumentFilesPage({ search = "", page = 1 } = {}) {
   const response = await apiClient("/lists/documents-files", {
     query: {
       search,
+      page,
     },
   });
 
-  return listFromResponse(response).map((documentItem) => ({
-    id: documentItem.id?.toString() ?? "",
-    label: documentItem.title ?? documentItem.name ?? "Документ",
-    filePath: documentItem.file_path ?? documentItem.document_file_path ?? "",
-  }));
+  const meta = metaFromResponse(response);
+  const currentPage = Number(meta.current_page) || page;
+  const lastPage = Number(meta.last_page) || 1;
+
+  return {
+    items: listFromResponse(response).map((documentItem) => ({
+      id: documentItem.id?.toString() ?? "",
+      label: documentItem.title ?? documentItem.name ?? "Документ",
+      filePath: documentItem.file_path ?? documentItem.document_file_path ?? "",
+    })),
+    page: currentPage,
+    hasMore: currentPage < lastPage,
+  };
 }
 
-// TEMP/костыль: /lists/users пагинируется (15 на страницу), а селектам нужен
-// весь список. Пока на бэкенде нет ручки "вернуть всех", собираем все страницы
-// пагинации на фронте. last_page приходит из первой страницы — лишних запросов нет.
-const USERS_MAX_PAGES = 200;
+export async function getDocumentFiles({ search = "" } = {}) {
+  const { items } = await getDocumentFilesPage({ search, page: 1 });
 
-export async function getUsers({ search = "" } = {}) {
-  const firstPage = await apiClient("/lists/users", {
+  return items;
+}
+
+export async function getUsers({ search = "", page = 1 } = {}) {
+  const response = await apiClient("/lists/users", {
     query: {
       search,
-      page: 1,
+      page,
     },
   });
 
-  const users = listFromResponse(firstPage).map(normalizeUser);
-  const lastPage = Math.min(
-    Number(firstPage?.last_page ?? firstPage?.meta?.last_page ?? 1) || 1,
-    USERS_MAX_PAGES,
-  );
+  const meta = metaFromResponse(response);
+  const currentPage = Number(meta.current_page) || page;
+  const lastPage = Number(meta.last_page) || 1;
 
-  if (lastPage <= 1) {
-    return users;
-  }
-
-  const remainingPages = [];
-
-  for (let page = 2; page <= lastPage; page += 1) {
-    remainingPages.push(page);
-  }
-
-  const responses = await Promise.all(
-    remainingPages.map((page) =>
-      apiClient("/lists/users", {
-        query: {
-          search,
-          page,
-        },
-      }),
-    ),
-  );
-
-  responses.forEach((response) => {
-    users.push(...listFromResponse(response).map(normalizeUser));
-  });
-
-  return users;
+  return {
+    items: listFromResponse(response).map(normalizeUser),
+    page: currentPage,
+    hasMore: currentPage < lastPage,
+  };
 }
 
 export async function getUsersPosts() {

@@ -47,9 +47,13 @@ const isOpen = ref(false);
 const search = ref("");
 const results = ref([]);
 const isLoading = ref(false);
+const isLoadingMore = ref(false);
+const page = ref(1);
+const hasMore = ref(false);
 const localLabel = ref("");
 const rootRef = ref(null);
 const searchInput = ref(null);
+const listRef = ref(null);
 
 let searchTimer = null;
 let requestId = 0;
@@ -61,24 +65,70 @@ const isPlaceholder = computed(
   () => !props.modelValue && !props.selectedLabel && !localLabel.value,
 );
 
-async function loadOptions() {
+async function runFetch(nextPage) {
+  const result = await props.fetcher({ search: search.value.trim(), page: nextPage });
+
+  if (Array.isArray(result)) {
+    return { items: result, hasMore: false };
+  }
+
+  return { items: result?.items ?? [], hasMore: Boolean(result?.hasMore) };
+}
+
+async function loadOptions({ reset }) {
   const currentRequestId = ++requestId;
-  isLoading.value = true;
+  const nextPage = reset ? 1 : page.value + 1;
+
+  if (reset) {
+    isLoading.value = true;
+  } else {
+    isLoadingMore.value = true;
+  }
 
   try {
-    const items = await props.fetcher(search.value.trim());
+    const { items, hasMore: more } = await runFetch(nextPage);
 
-    if (currentRequestId === requestId) {
-      results.value = Array.isArray(items) ? items : [];
+    if (currentRequestId !== requestId) {
+      return;
+    }
+
+    results.value = reset ? items : [...results.value, ...items];
+    page.value = nextPage;
+    hasMore.value = more;
+
+    if (reset) {
+      nextTick(() => {
+        if (listRef.value) {
+          listRef.value.scrollTop = 0;
+        }
+      });
     }
   } catch {
-    if (currentRequestId === requestId) {
+    if (currentRequestId === requestId && reset) {
       results.value = [];
+      hasMore.value = false;
     }
   } finally {
     if (currentRequestId === requestId) {
       isLoading.value = false;
+      isLoadingMore.value = false;
     }
+  }
+}
+
+function loadMore() {
+  if (!hasMore.value || isLoading.value || isLoadingMore.value) {
+    return;
+  }
+
+  loadOptions({ reset: false });
+}
+
+function onScroll() {
+  const el = listRef.value;
+
+  if (el && el.scrollHeight - el.scrollTop - el.clientHeight < 48) {
+    loadMore();
   }
 }
 
@@ -90,8 +140,8 @@ function toggleMenu() {
   isOpen.value = !isOpen.value;
 
   if (isOpen.value) {
-    if (!results.value.length || !search.value) {
-      loadOptions();
+    if (!results.value.length || !search.value.trim()) {
+      loadOptions({ reset: true });
     }
 
     nextTick(() => searchInput.value?.focus());
@@ -114,8 +164,12 @@ function handleOutside(event) {
 }
 
 watch(search, () => {
+  if (!isOpen.value) {
+    return;
+  }
+
   window.clearTimeout(searchTimer);
-  searchTimer = window.setTimeout(loadOptions, 300);
+  searchTimer = window.setTimeout(() => loadOptions({ reset: true }), 300);
 });
 
 onMounted(() => {
@@ -157,19 +211,34 @@ onBeforeUnmount(() => {
         <UiKitIcon class="ui-kit-search-select__search-icon" name="search" :size="20" />
       </div>
 
-      <ul class="ui-kit-search-select__list">
+      <ul ref="listRef" class="ui-kit-search-select__list" @scroll="onScroll">
         <li
-          v-for="option in results"
-          :key="option.id"
-          class="ui-kit-search-select__option"
-          :class="{ 'ui-kit-search-select__option--active': option.id === modelValue }"
-          @click="selectOption(option)"
+          v-if="isLoading"
+          class="ui-kit-search-select__message ui-kit-search-select__message--center"
         >
-          {{ option.label }}
+          <span class="ui-kit-search-select__spinner" aria-hidden="true" />
+          {{ loadingText }}
         </li>
 
-        <li v-if="isLoading" class="ui-kit-search-select__message">{{ loadingText }}</li>
-        <li v-else-if="!results.length" class="ui-kit-search-select__message">{{ emptyText }}</li>
+        <template v-else>
+          <li
+            v-for="option in results"
+            :key="option.id"
+            class="ui-kit-search-select__option"
+            :class="{ 'ui-kit-search-select__option--active': option.id === modelValue }"
+            @click="selectOption(option)"
+          >
+            {{ option.label }}
+          </li>
+
+          <li v-if="isLoadingMore" class="ui-kit-search-select__message">
+            <span class="ui-kit-search-select__spinner" aria-hidden="true" />
+            {{ loadingText }}
+          </li>
+          <li v-else-if="!results.length" class="ui-kit-search-select__message">
+            {{ emptyText }}
+          </li>
+        </template>
       </ul>
     </div>
   </div>
@@ -314,11 +383,35 @@ onBeforeUnmount(() => {
 }
 
 .ui-kit-search-select__message {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   padding: 10px 12px;
   color: var(--color-text-muted);
   font-family: var(--font-family-base);
   font-size: 14px;
   line-height: 18px;
   list-style: none;
+}
+
+.ui-kit-search-select__message--center {
+  justify-content: center;
+  min-height: 96px;
+}
+
+.ui-kit-search-select__spinner {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--color-secondary);
+  border-top-color: var(--color-primary);
+  border-radius: 50%;
+  animation: ui-kit-search-select-spin 0.7s linear infinite;
+}
+
+@keyframes ui-kit-search-select-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 </style>

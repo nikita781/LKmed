@@ -79,6 +79,7 @@
                 class="create-document-modal__target-control"
                 :class="{ 'create-document-modal__target-control--error': shouldShowGroupError }"
                 type="button"
+                :title="selectedGroupsTitle"
                 @click="isGroupMenuOpen = !isGroupMenuOpen"
               >
                 <span class="create-document-modal__chips">
@@ -88,24 +89,49 @@
                   >
                     Выберите целевую группу
                   </span>
-                  <span
-                    v-for="group in selectedGroupItems"
-                    :key="group.id"
-                    class="create-document-modal__chip"
-                  >
-                    {{ group.label }}
+
+                  <span v-else-if="allGroupsSelected" class="create-document-modal__chip">
+                    <span class="create-document-modal__chip-text">Все подразделения</span>
                     <span
                       class="create-document-modal__chip-remove"
                       role="button"
                       tabindex="0"
-                      :aria-label="`Убрать ${group.label}`"
-                      @click.stop="removeGroup(group.id)"
-                      @keydown.enter.stop.prevent="removeGroup(group.id)"
-                      @keydown.space.stop.prevent="removeGroup(group.id)"
+                      aria-label="Убрать все подразделения"
+                      @click.stop="clearGroups"
+                      @keydown.enter.stop.prevent="clearGroups"
+                      @keydown.space.stop.prevent="clearGroups"
                     >
                       <UiKitIcon name="close" :size="15" />
                     </span>
                   </span>
+
+                  <template v-else>
+                    <span
+                      v-for="group in visibleGroupItems"
+                      :key="group.id"
+                      class="create-document-modal__chip"
+                    >
+                      <span class="create-document-modal__chip-text">{{ group.label }}</span>
+                      <span
+                        class="create-document-modal__chip-remove"
+                        role="button"
+                        tabindex="0"
+                        :aria-label="`Убрать ${group.label}`"
+                        @click.stop="removeGroup(group.id)"
+                        @keydown.enter.stop.prevent="removeGroup(group.id)"
+                        @keydown.space.stop.prevent="removeGroup(group.id)"
+                      >
+                        <UiKitIcon name="close" :size="15" />
+                      </span>
+                    </span>
+
+                    <span
+                      v-if="hiddenGroupsCount"
+                      class="create-document-modal__chip create-document-modal__chip--counter"
+                    >
+                      +{{ hiddenGroupsCount }}
+                    </span>
+                  </template>
                 </span>
                 <UiKitIcon name="chevron-down" :size="20" />
               </button>
@@ -281,6 +307,8 @@ const fallbackCategoryOptions = [
   { id: "quality", label: "Контроль качества" },
 ];
 
+let hasRestoredEditGroups = false;
+
 const fallbackGroupOptions = [
   { id: "surgeon", label: "Хирург" },
   { id: "therapist", label: "Терапевт" },
@@ -394,6 +422,21 @@ watch(baseDocumentOptions, () => {
   }
 });
 
+watch(groupOptions, () => {
+  if (hasRestoredEditGroups || !props.modelValue || !isEditMode.value || !props.document) {
+    return;
+  }
+
+  const restoredGroups = getDefaultGroupIds(props.document);
+
+  if (!restoredGroups.length) {
+    return;
+  }
+
+  form.groups = restoredGroups;
+  hasRestoredEditGroups = true;
+});
+
 watch(documentMode, () => {
   formError.value = "";
   fileError.value = "";
@@ -407,6 +450,7 @@ function resetForm() {
   const documentItem = props.document;
   const defaultGroups = getDefaultGroupIds(documentItem);
 
+  hasRestoredEditGroups = defaultGroups.length > 0;
   documentMode.value = isEditMode.value ? "base" : "upload";
   isGroupMenuOpen.value = false;
   validationAttempted.value = false;
@@ -424,20 +468,29 @@ function resetForm() {
   }
 }
 
+function findGroupOption(groupValue) {
+  const normalizedValue = normalizeOptionText(groupValue);
+
+  if (!normalizedValue) {
+    return null;
+  }
+
+  return (
+    groupOptions.value.find(
+      (group) =>
+        normalizeOptionText(group.id) === normalizedValue ||
+        normalizeOptionText(group.label) === normalizedValue,
+    ) ?? null
+  );
+}
+
 function getDefaultGroupIds(documentItem) {
   if (!documentItem?.groups?.length) {
     return [];
   }
 
   return documentItem.groups
-    .map((groupValue) => {
-      const normalizedValue = groupValue?.toString() ?? "";
-      const option = groupOptions.value.find(
-        (group) => group.id === normalizedValue || group.label === normalizedValue,
-      );
-
-      return option?.id ?? "";
-    })
+    .map((groupValue) => findGroupOption(groupValue)?.id ?? "")
     .filter(Boolean);
 }
 
@@ -543,6 +596,32 @@ const allGroupsSelected = computed(
 function toggleSelectAllGroups() {
   form.groups = allGroupsSelected.value ? [] : groupOptions.value.map((group) => group.id);
 }
+
+function clearGroups() {
+  form.groups = [];
+}
+
+const MAX_VISIBLE_GROUP_CHIPS = 2;
+
+const visibleGroupItems = computed(() =>
+  selectedGroupItems.value.slice(0, MAX_VISIBLE_GROUP_CHIPS),
+);
+
+const hiddenGroupsCount = computed(() =>
+  Math.max(selectedGroupItems.value.length - MAX_VISIBLE_GROUP_CHIPS, 0),
+);
+
+const selectedGroupsTitle = computed(() => {
+  if (!selectedGroupItems.value.length) {
+    return "";
+  }
+
+  if (allGroupsSelected.value) {
+    return "Все подразделения";
+  }
+
+  return selectedGroupItems.value.map((group) => group.label).join(", ");
+});
 
 function openFilePicker() {
   fileInputRef.value?.click();
@@ -904,27 +983,37 @@ body.create-document-modal-open {
 
 .create-document-modal__target-control {
   display: flex;
+  height: 40px;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 6px 15px;
+  padding: 0 15px;
+  overflow: hidden;
   cursor: pointer;
+}
+
+.create-document-modal__target-control > .ui-kit-icon {
+  flex: 0 0 auto;
 }
 
 .create-document-modal__chips {
   display: flex;
   min-width: 0;
-  flex-wrap: wrap;
+  flex: 1 1 auto;
+  flex-wrap: nowrap;
+  align-items: center;
   gap: 5px;
+  overflow: hidden;
 }
 
 .create-document-modal__chip {
   display: inline-flex;
   max-width: 100%;
-  min-height: 27px;
+  height: 28px;
+  min-width: 0;
   align-items: center;
   gap: 4px;
-  padding: 6px 12px;
+  padding: 0 10px;
   border: 1px solid #c0c3c9;
   border-radius: 12px;
   background: var(--color-surface);
@@ -932,10 +1021,24 @@ body.create-document-modal-open {
   font-size: 14px;
   font-weight: 400;
   line-height: 15px;
+  white-space: nowrap;
+}
+
+.create-document-modal__chip-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.create-document-modal__chip--counter {
+  flex: 0 0 auto;
+  border-color: var(--color-primary);
+  color: var(--color-primary);
 }
 
 .create-document-modal__chip-remove {
   display: inline-flex;
+  flex: 0 0 auto;
   color: #c0c3c9;
   cursor: pointer;
 }

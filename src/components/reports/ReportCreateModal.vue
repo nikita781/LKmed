@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, reactive, ref, watch } from "vue";
 import { getUserApiErrorMessage } from "../../services/apiClient";
 import {
-  getDocumentFiles,
+  getDocumentFilesPage,
   getDocumentStatuses,
   getUsers,
 } from "../../services/moderatorDocumentsApi";
@@ -52,16 +52,18 @@ async function loadStatuses() {
   }
 }
 
-function fetchEmployees(search) {
-  return getUsers({ search }).then((users) =>
-    users.map((user) => ({ id: user.id, label: user.fullName })),
-  );
+function fetchEmployees({ search, page }) {
+  return getUsers({ search, page }).then((result) => ({
+    items: result.items.map((user) => ({ id: user.id, label: user.fullName })),
+    hasMore: result.hasMore,
+  }));
 }
 
-function fetchDocuments(search) {
-  return getDocumentFiles({ search }).then((docs) =>
-    docs.map((doc) => ({ id: doc.id, label: doc.label })),
-  );
+function fetchDocuments({ search, page }) {
+  return getDocumentFilesPage({ search, page }).then((result) => ({
+    items: result.items.map((doc) => ({ id: doc.id, label: doc.label })),
+    hasMore: result.hasMore,
+  }));
 }
 
 const validationAttempted = ref(false);
