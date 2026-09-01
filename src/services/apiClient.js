@@ -1,9 +1,8 @@
 import { getStoredAccessToken } from "./authSession";
 
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000/api").replace(
-  /\/$/,
-  "",
-);
+export const API_BASE_URL = (
+  import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000/api"
+).replace(/\/$/, "");
 
 const DEFAULT_API_ERROR_MESSAGE = "Не удалось выполнить действие. Попробуйте позже.";
 
@@ -169,6 +168,45 @@ function logApiError({ errorPayload, messages, method, status, url }) {
   console.warn(`[API] ${summary}`);
 }
 
+export async function createApiError(response, { method = "GET", url = "", fallbackMessage } = {}) {
+  const contentType = response.headers.get("content-type") ?? "";
+  let errorPayload = null;
+
+  if (contentType.includes("application/json")) {
+    try {
+      errorPayload = await response.json();
+    } catch {
+      errorPayload = null;
+    }
+  }
+
+  const errorMessages = getErrorMessages(errorPayload);
+  const rawMessage =
+    errorMessages[0] ??
+    errorPayload?.error ??
+    fallbackMessage ??
+    `API request failed with status ${response.status}`;
+  const userMessage = getUserFacingErrorMessage(response.status, errorMessages, rawMessage);
+  const error = new Error(userMessage);
+
+  logApiError({
+    errorPayload,
+    messages: errorMessages.length ? errorMessages : [rawMessage],
+    method,
+    status: response.status,
+    url,
+  });
+
+  error.status = response.status;
+  error.errors = errorPayload?.errors;
+  error.messages = errorMessages;
+  error.rawMessage = rawMessage;
+  error.userMessage = userMessage;
+  error.payload = errorPayload;
+
+  return error;
+}
+
 export async function apiClient(path, options = {}) {
   const { body, headers = {}, method = "GET", query, skipAuth = false, ...restOptions } = options;
   const hasBody = body !== undefined && body !== null;
@@ -202,41 +240,7 @@ export async function apiClient(path, options = {}) {
   });
 
   if (!response.ok) {
-    const contentType = response.headers.get("content-type") ?? "";
-    let errorPayload = null;
-
-    if (contentType.includes("application/json")) {
-      try {
-        errorPayload = await response.json();
-      } catch {
-        errorPayload = null;
-      }
-    }
-
-    const errorMessages = getErrorMessages(errorPayload);
-    const rawMessage =
-      errorMessages[0] ??
-      errorPayload?.error ??
-      `API request failed with status ${response.status}`;
-    const userMessage = getUserFacingErrorMessage(response.status, errorMessages, rawMessage);
-    const error = new Error(userMessage);
-
-    logApiError({
-      errorPayload,
-      messages: errorMessages.length ? errorMessages : [rawMessage],
-      method,
-      status: response.status,
-      url,
-    });
-
-    error.status = response.status;
-    error.errors = errorPayload?.errors;
-    error.messages = errorMessages;
-    error.rawMessage = rawMessage;
-    error.userMessage = userMessage;
-    error.payload = errorPayload;
-
-    throw error;
+    throw await createApiError(response, { method, url });
   }
 
   if (response.status === 204) {
